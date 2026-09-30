@@ -4,6 +4,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { OpenCodeAdapter } from "@openmimir/adapters";
 import { configPath, loadConfig, type MimirConfig, saveConfig } from "@openmimir/core";
+import { AGENT_LABELS } from "@openmimir/protocol";
 import pkg from "../package.json" with { type: "json" };
 import { createApp } from "./app.ts";
 import { startServer } from "./server.ts";
@@ -61,7 +62,10 @@ async function serve() {
   Open      ${url}
   Foreman   ${config.foreman.model}${app.foremanError() ? `  (not ready: ${app.foremanError()})` : ""}
   Voice     ${app.voice ? config.voice.model : "off (no OpenAI key)"}
-  OpenCode  ${app.info().opencode.connected ? `connected at ${config.opencode.url}` : `not reachable at ${config.opencode.url}`}
+  Agents    ${app
+    .info()
+    .agents.map((a) => `${AGENT_LABELS[a.kind]} ${a.available ? "✓" : `✗ (${a.detail ?? "unavailable"})`}`)
+    .join(", ")}
 `);
 
   let stopping = false;
@@ -171,6 +175,17 @@ async function doctor() {
         ? "not running, Mimir will start it"
         : health.error,
   );
+  for (const [kind, enabled] of [
+    ["claude", config.agents.claude],
+    ["codex", config.agents.codex],
+  ] as const) {
+    const path = Bun.which(kind);
+    check(
+      Boolean(path) || !enabled,
+      `${AGENT_LABELS[kind]}`,
+      !enabled ? "turned off" : (path ?? "not installed (optional)"),
+    );
+  }
   if (config.keys.openai) {
     const response = await fetch(`https://api.openai.com/v1/models/${config.voice.model}`, {
       headers: { authorization: `Bearer ${config.keys.openai}` },

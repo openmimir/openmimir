@@ -18,7 +18,7 @@ description, steps to reproduce, and the version (`mimir version`). We aim to re
   paired clients, and responses carry no CORS headers, so other websites cannot read it.
 - The WebSocket requires the token as well.
 - Other devices pair through `mimir pair`, which sets an `HttpOnly`, `SameSite=Strict` cookie.
-- Worker approvals are tiered (`confirm` vs `screen`). Voice can never approve `screen`-tier actions
+- Approvals are tiered (`confirm` vs `screen`). Voice can never approve `screen`-tier actions
   such as pushes, deploys or deletes.
 - API keys stay on the server. The browser only gets an SDP answer for its voice session, never a key.
 - `~/.openmimir/config.json` is written with mode `600`.

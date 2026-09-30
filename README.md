@@ -2,10 +2,11 @@
 
 **One chat that runs all your coding agents. Type to it, or talk to it hands-free.**
 
-Mimir is a foreman for your coding agents. You talk to one ongoing conversation, and it starts,
-steers and checks on worker agents (OpenCode today, more soon) that do the actual work in your
-repos. Add full-duplex voice and you can run your agents from an indoor bike, a treadmill or a walk:
-it listens while it talks, you can interrupt it, and it tells you when a worker finishes or needs you.
+Mimir is one conversation in front of all your coding agents: OpenCode, Claude Code and Codex. It
+already sees the sessions you started at your desk, so "how's the reachkit refactor going?" or
+"carry on with that" just works, and new requests become new tasks without you picking an agent or a
+session. Add full-duplex voice and you can run it all from an indoor bike, a treadmill or a walk: it
+listens while it talks, you can interrupt it, and it tells you when a task finishes or needs you.
 
 > Status: early (v0.1). Works on macOS at a desk and on the indoor trainer. Phone calls and
 > outdoor/running mode are next. See the [roadmap](#roadmap).
@@ -16,22 +17,25 @@ it listens while it talks, you can interrupt it, and it tells you when a worker 
  Keyboard chat │ Trainer screen │ Full-duplex voice (GPT-Live over WebRTC)
                └───────┬────────┘
                Mimir server on your Mac (one process)
-        foreman model · memory · worker state · approval rules
+        foreman model · memory · task state · approval rules
                        │
-                 OpenCode (more adapters coming)
+          OpenCode · Claude Code · Codex
 ```
 
-- **The foreman** is a frontier model (OpenAI or Anthropic, your choice) with tools to start
-  workers, message them, check their status and changes, and handle approvals.
+- **The foreman** is a frontier model (OpenAI or Anthropic, your choice). It sees recent sessions in
+  every agent, starts new tasks, continues existing ones, checks status and changes, and handles
+  approvals.
 - **Voice** uses OpenAI's `gpt-live-1`. Your browser streams audio straight to OpenAI; the Mimir
   server brokers the session, listens in, and handles everything the voice model delegates.
-- **Workers** are OpenCode sessions. Mimir starts `opencode serve` for you if it is not running.
+- **Tasks** are agent sessions. OpenCode runs through its server (Mimir starts `opencode serve` if
+  needed); Claude Code and Codex run headless (`claude -p`, `codex exec`) and are picked up
+  automatically when installed.
 
 ## Requirements
 
 - macOS (Apple Silicon or Intel)
 - [Bun](https://bun.sh) 1.3+
-- [OpenCode](https://opencode.ai) v2 (`opencode` on your PATH)
+- [OpenCode](https://opencode.ai) v2 (`opencode` on your PATH). Claude Code and Codex are optional.
 - An OpenAI API key (voice, and the default foreman). An Anthropic key is optional.
 
 ## Quick start
@@ -43,7 +47,7 @@ bunx openmimir         # starts the server
 
 Open <http://localhost:4747>, then type a request or press **⌘⇧Space** to talk:
 
-> "Start a worker in openmimir that adds a section about setup to the README."
+> "Add a section about setup to the openmimir README."
 
 Switch to **Trainer** mode for a big, glanceable screen with live captions and huge approve/reject
 buttons.
@@ -78,7 +82,7 @@ variables override it: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MIMIR_PORT`, `MIM
 {
   "foreman": { "model": "openai/gpt-6.1-sol" },   // or "anthropic/<model>"
   "voice": { "model": "gpt-live-1", "voice": "marin" },
-  "projectRoots": ["~/repos"],                     // git repos in here are available to workers
+  "projectRoots": ["~/repos"],                     // git repos in here are available for new tasks
   "opencode": { "url": "http://127.0.0.1:4097", "manage": true }
 }
 ```
@@ -101,7 +105,9 @@ Mimir can drive agents that change code on your machine, so:
 
 - The server listens on `127.0.0.1` only. Other devices must pair first.
 - Every API call needs a token; websites you visit cannot talk to Mimir.
-- Worker approvals are tiered. Normal edits and commands can be approved by voice, but only after
+- Risky shell commands (push, deploy, `rm -rf`, `sudo`, ...) are held for approval in OpenCode and
+  blocked outright in Claude Code. Codex follows its own sandbox settings.
+- Approvals are tiered. Normal edits and commands can be approved by voice, but only after
   you explicitly say "confirm". Pushes, deploys, deletes and similar can only be approved on a screen.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.
@@ -109,19 +115,19 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 ## Costs
 
 You bring your own keys. Voice is billed by OpenAI per minute of session (about $0.05/min for
-`gpt-live-1` at the time of writing), plus the foreman model's tokens and whatever your workers use.
+`gpt-live-1` at the time of writing), plus the foreman model's tokens and whatever your agents use.
 Mimir itself is free.
 
 ## Roadmap
 
-- [x] Foreman chat with OpenCode workers, approvals and live status
+- [x] Foreman chat over OpenCode, Claude Code and Codex, including sessions you started yourself
+- [x] Approvals and live task status
 - [x] Full-duplex voice at the desk (GPT-Live, WebRTC)
 - [x] Trainer mode: glanceable screen with captions
-- [ ] Claude Code and Codex adapters
 - [ ] Phone calls (SIP) and a screenless mode for outdoor rides and runs
 - [ ] Wake word, breathing-proof turn taking, running mode
 - [ ] Menubar desktop app
-- [ ] Cloud workers so your laptop can sleep
+- [ ] Cloud agents so your laptop can sleep
 
 ## Contributing
 

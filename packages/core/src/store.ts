@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Approval, ChatMessage, Worker } from "@openmimir/protocol";
+import type { Approval, ChatMessage, Task } from "@openmimir/protocol";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /**
  * Local persistence in a single SQLite file. Rows store JSON documents so the
@@ -37,6 +37,7 @@ export class Store {
         CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, status TEXT NOT NULL, created_at INTEGER NOT NULL, doc TEXT NOT NULL);
       `);
     }
+    if (current < 2) this.migrateWorkersToTasks();
     this.db
       .query("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema', ?)")
       .run(String(SCHEMA_VERSION));
@@ -55,29 +56,62 @@ export class Store {
     return rows.map((row) => JSON.parse(row.doc) as ChatMessage).reverse();
   }
 
-  saveWorker(worker: Worker) {
-    this.db
-      .query("INSERT OR REPLACE INTO workers (id, external_id, updated_at, doc) VALUES (?, ?, ?, ?)")
-      .run(worker.id, worker.externalId, worker.updatedAt, JSON.stringify(worker));
-  }
-
-  workers(limit = 50): Worker[] {
-    const rows = this.db
-      .query("SELECT doc FROM workers ORDER BY updated_at DESC LIMIT ?")
-      .all(limit) as Array<{ doc: string }>;
-    return rows.map((row) => JSON.parse(row.doc) as Worker);
-  }
-
-  workerByExternalId(externalId: string): Worker | undefined {
-    const row = this.db.query("SELECT doc FROM workers WHERE external_id = ?").get(externalId) as {
+  /** v2: "workers" became "tasks", keyed by `${agent}:${externalId}`. */
+  private migrateWorkersToTasks() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, updated_at INTEGER NOT NULL, doc TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS tasks_updated ON tasks(updated_at);
+    `);
+    const workers = this.db.query("SELECT doc FROM workers").all() as Array<{ doc: string }>;
+    const ids = new Map<string, string>();
+    for (const row of workers) {
+      const w = JSON.parse(row.doc) as Record<string, unknown>;
+      const task: Task = {
+        id: `opencode:${w.externalId}`,
+        agent: "opencode",
+        title: String(w.title),
+        directory: String(w.directory),
+        status: w.status as Task["status"],
+        externalId: String(w.externalId),
+        origin: "mimir",
+        tracked: true,
+        lastText: w.lastText as string | undefined,
+        error: w.error as string | undefined,
+        createdAt: Number(w.createdAt),
+        updatedAt: Number(w.updatedAt),
+      };
+      ids.set(String(w.id), task.id);
+      this.saveTask(task);
+    }
+    const approvals = this.db.query("SELECT id, doc FROM approvals").all() as Array<{
+      id: string;
       doc: string;
-    } | null;
-    return row ? (JSON.parse(row.doc) as Worker) : undefined;
+    }>;
+    for (const row of approvals) {
+      const a = JSON.parse(row.doc) as Record<string, unknown>;
+      const { workerId, ...rest } = a;
+      const next = { ...rest, taskId: ids.get(String(workerId)) ?? String(workerId) };
+      this.db.query("UPDATE approvals SET doc = ? WHERE id = ?").run(JSON.stringify(next), row.id);
+    }
+    this.db.exec("DROP TABLE IF EXISTS workers");
   }
 
-  worker(id: string): Worker | undefined {
-    const row = this.db.query("SELECT doc FROM workers WHERE id = ?").get(id) as { doc: string } | null;
-    return row ? (JSON.parse(row.doc) as Worker) : undefined;
+  saveTask(task: Task) {
+    this.db
+      .query("INSERT OR REPLACE INTO tasks (id, updated_at, doc) VALUES (?, ?, ?)")
+      .run(task.id, task.updatedAt, JSON.stringify(task));
+  }
+
+  tasks(limit = 50): Task[] {
+    const rows = this.db.query("SELECT doc FROM tasks ORDER BY updated_at DESC LIMIT ?").all(limit) as Array<{
+      doc: string;
+    }>;
+    return rows.map((row) => JSON.parse(row.doc) as Task);
+  }
+
+  task(id: string): Task | undefined {
+    const row = this.db.query("SELECT doc FROM tasks WHERE id = ?").get(id) as { doc: string } | null;
+    return row ? (JSON.parse(row.doc) as Task) : undefined;
   }
 
   saveApproval(approval: Approval) {

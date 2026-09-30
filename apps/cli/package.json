@@ -19,7 +19,7 @@
     "gpt-live"
   ],
   "bin": {
-    "mimir": "./dist/index.js"
+    "mimir": "dist/index.js"
   },
   "files": [
     "dist/index.js",

@@ -1,8 +1,8 @@
 /**
- * The contract every coding-agent adapter implements. The foreman only ever
- * talks to agents through this interface, so adding Claude Code or Codex later
- * means writing one new adapter, not touching the core.
+ * The contract every coding-agent adapter implements. The core only ever talks
+ * to agents through this interface.
  */
+import type { AgentKind } from "@openmimir/protocol";
 
 export type PermissionDecision = "once" | "always" | "reject";
 
@@ -37,28 +37,49 @@ export interface FileChange {
 
 export interface AdapterHealth {
   ok: boolean;
-  /** True when something answered at the URL, even if with an error. */
+  /** True when something answered, even if with an error. */
   answered?: boolean;
   version?: string;
   error?: string;
 }
 
+/** A session found in the agent's own history, whoever started it. */
+export interface SessionSummary {
+  externalId: string;
+  title: string;
+  directory: string;
+  updatedAt: number;
+  createdAt: number;
+  /** True if the agent is known to be working on it right now. */
+  running: boolean;
+  lastText?: string;
+}
+
 export interface AgentAdapter {
-  readonly kind: string;
-  readonly url: string;
+  readonly kind: AgentKind;
+  /** Whether the agent can pause for approvals that Mimir answers. */
+  readonly supportsApprovals: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
   health(): Promise<AdapterHealth>;
+  /** Most recently active sessions, newest first. */
+  listRecent(limit: number): Promise<SessionSummary[]>;
+  /** Create a session in `directory` and send it its first instructions. */
   createSession(input: {
     directory: string;
     title: string;
-    /** Shell command globs that must always ask for approval in this session. */
-    guardedCommands?: string[];
+    prompt: string;
+    /** Shell command globs that must never run without the user's approval. */
+    guardedCommands: string[];
   }): Promise<{ externalId: string }>;
-  prompt(externalId: string, text: string): Promise<void>;
+  prompt(
+    session: { externalId: string; directory: string },
+    text: string,
+    guardedCommands: string[],
+  ): Promise<void>;
   interrupt(externalId: string): Promise<void>;
-  lastAssistantText(externalId: string): Promise<string | undefined>;
-  diff(externalId: string): Promise<FileChange[]>;
+  lastAssistantText(session: { externalId: string; directory: string }): Promise<string | undefined>;
+  diff(session: { externalId: string; directory: string }): Promise<FileChange[]>;
   replyPermission(externalId: string, requestId: string, decision: PermissionDecision): Promise<void>;
   onEvent(listener: (event: AdapterEvent) => void): () => void;
 }

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { OpenCodeAdapter } from "@openmimir/adapters";
+import { type AgentAdapter, ClaudeCodeAdapter, CodexAdapter, OpenCodeAdapter } from "@openmimir/adapters";
 import {
   createForemanModel,
   EventBus,
@@ -8,9 +8,9 @@ import {
   mimirHome,
   ProjectIndex,
   Store,
-  WorkerManager,
+  TaskManager,
 } from "@openmimir/core";
-import type { ForemanActivity, ServerInfo, Snapshot, VoiceState } from "@openmimir/protocol";
+import type { AgentKind, ForemanActivity, ServerInfo, Snapshot, VoiceState } from "@openmimir/protocol";
 import { type HistoryItem, LiveVoice } from "@openmimir/voice";
 
 export type App = Awaited<ReturnType<typeof createApp>>;
@@ -18,20 +18,26 @@ export type App = Awaited<ReturnType<typeof createApp>>;
 export async function createApp(config: MimirConfig, version: string, log: (message: string) => void) {
   const bus = new EventBus();
   const store = new Store(process.env.MIMIR_DB ?? join(mimirHome(), "mimir.db"));
-  const adapter = new OpenCodeAdapter({
+
+  const opencode = new OpenCodeAdapter({
     url: config.opencode.url,
     username: config.opencode.username,
     password: config.opencode.password,
     manage: config.opencode.manage,
     log,
   });
-  const workers = new WorkerManager(adapter, store, bus);
+  const adapters = new Map<AgentKind, AgentAdapter>([["opencode", opencode]]);
+  if (config.agents.claude && Bun.which("claude")) adapters.set("claude", new ClaudeCodeAdapter({ log }));
+  if (config.agents.codex && Bun.which("codex")) adapters.set("codex", new CodexAdapter({ log }));
+
+  const tasks = new TaskManager(adapters, store, bus, log);
   const projects = new ProjectIndex(config.projectRoots, config.projects);
+  const defaultAgent = adapters.has(config.agents.default) ? config.agents.default : "opencode";
 
   let foreman: Foreman | undefined;
   let foremanError: string | undefined;
   try {
-    foreman = new Foreman({ model: createForemanModel(config), store, bus, workers, projects });
+    foreman = new Foreman({ model: createForemanModel(config), store, bus, tasks, projects, defaultAgent });
   } catch (error) {
     foremanError = error instanceof Error ? error.message : String(error);
     log(`[foreman] ${foremanError}`);
@@ -54,8 +60,9 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
         onState: (state) => bus.publish({ type: "voice.state", voice: state }),
         onCaption: (caption) => {
           bus.publish({ type: "caption", caption });
-          if (caption.final && caption.text)
+          if (caption.final && caption.text) {
             log(`[voice] ${caption.speaker === "user" ? "you" : "mimir"}: ${caption.text}`);
+          }
         },
         onDelegation: async (utterance, progress) => {
           if (!foreman) return `The foreman is not configured: ${foremanError}`;
@@ -65,12 +72,13 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
       })
     : undefined;
 
-  workers.onAnnouncement((announcement) => {
-    foreman?.notice(announcement.text);
-    voice?.announce(announcement.text);
+  tasks.onAnnouncement((announcement) => {
+    foreman?.notice(announcement.text, announcement.taskId);
+    // The foreman already says when it starts something; only speak what happens later.
+    if (announcement.kind !== "started") voice?.announce(announcement.text);
   });
 
-  let opencodeHealth = { ok: false, version: undefined as string | undefined };
+  const health = new Map<AgentKind, { ok: boolean; detail?: string }>();
 
   function info(): ServerInfo {
     return {
@@ -78,15 +86,24 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
       foremanModel: config.foreman.model,
       voiceModel: config.voice.model,
       voiceConfigured: Boolean(voice),
-      opencode: { url: adapter.url, connected: opencodeHealth.ok, version: opencodeHealth.version },
+      agents: [...adapters.keys()].map((kind) => ({
+        kind,
+        available: health.get(kind)?.ok ?? false,
+        detail: health.get(kind)?.detail,
+      })),
       projects: projects.list(),
     };
   }
 
   async function refreshHealth() {
-    const health = await adapter.health();
-    const changed = health.ok !== opencodeHealth.ok;
-    opencodeHealth = { ok: health.ok, version: health.version };
+    let changed = false;
+    for (const [kind, adapter] of adapters) {
+      const result = await adapter.health();
+      const detail = result.ok ? (result.version ? `v${result.version}` : undefined) : result.error;
+      const previous = health.get(kind);
+      if (previous?.ok !== result.ok) changed = true;
+      health.set(kind, { ok: result.ok, detail });
+    }
     if (changed) bus.publish({ type: "info", info: info() });
   }
 
@@ -94,8 +111,8 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
     return {
       info: info(),
       messages: store.recentMessages(200),
-      workers: workers.list(),
-      approvals: workers.pendingApprovals(),
+      tasks: tasks.list(),
+      approvals: tasks.pendingApprovals(),
       voice: voiceState,
       activity,
     };
@@ -108,28 +125,31 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
       .map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text }));
   }
 
-  let healthTimer: ReturnType<typeof setInterval> | undefined;
+  const timers: Array<ReturnType<typeof setInterval>> = [];
 
   return {
     config,
     bus,
     store,
-    workers,
+    tasks,
     voice,
+    opencode,
     info,
     snapshot,
     voiceHistory,
     foreman: () => foreman,
     foremanError: () => foremanError,
     async start() {
-      await adapter.start();
+      await Promise.all([...adapters.values()].map((adapter) => adapter.start()));
       await refreshHealth();
-      healthTimer = setInterval(() => void refreshHealth(), 10_000);
+      await tasks.refresh(true).catch(() => undefined);
+      timers.push(setInterval(() => void refreshHealth(), 10_000));
+      timers.push(setInterval(() => void tasks.refresh().catch(() => undefined), 30_000));
     },
     async stop() {
-      if (healthTimer) clearInterval(healthTimer);
+      for (const timer of timers) clearInterval(timer);
       await voice?.close().catch(() => undefined);
-      await adapter.stop();
+      await Promise.all([...adapters.values()].map((adapter) => adapter.stop()));
       store.close();
     },
   };

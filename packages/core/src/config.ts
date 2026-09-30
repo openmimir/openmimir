@@ -27,6 +27,13 @@ export interface MimirConfig {
     openai?: string;
     anthropic?: string;
   };
+  agents: {
+    /** Agent for new tasks unless the user asks for another one. */
+    default: "opencode" | "claude" | "codex";
+    /** Claude Code and Codex are used when installed, unless turned off here. */
+    claude: boolean;
+    codex: boolean;
+  };
   opencode: {
     url: string;
     username: string;
@@ -61,6 +68,7 @@ export function defaultConfig(): MimirConfig {
     foreman: { model: "openai/gpt-6.1-sol" },
     voice: { model: "gpt-live-1", voice: "marin" },
     keys: {},
+    agents: { default: "opencode", claude: true, codex: true },
     opencode: {
       url: "http://127.0.0.1:4097",
       username: "opencode",

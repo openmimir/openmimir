@@ -33,8 +33,8 @@ bun test
 
 ```
 packages/protocol   shared types between server and interfaces
-packages/core       foreman, worker manager, approvals, config, SQLite store
-packages/adapters   coding-agent adapters (OpenCode)
+packages/core       foreman, task manager, approvals, config, SQLite store
+packages/adapters   coding-agent adapters (OpenCode, Claude Code, Codex)
 packages/voice      GPT-Live session + sideband
 apps/cli            the `mimir` command and HTTP/WebSocket server
 apps/web            React UI (desk + trainer modes)

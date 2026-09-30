@@ -13,26 +13,47 @@ export interface ChatMessage {
   text: string;
   /** True while the foreman is still streaming this message. */
   pending?: boolean;
+  /** Set on notices about a task, so interfaces can show its live status. */
+  taskId?: string;
   createdAt: number;
 }
 
-export type AgentKind = "opencode";
+export type AgentKind = "opencode" | "claude" | "codex";
 
-export type WorkerStatus = "working" | "needs_you" | "done" | "failed" | "idle";
+export const AGENT_LABELS: Record<AgentKind, string> = {
+  opencode: "OpenCode",
+  claude: "Claude Code",
+  codex: "Codex",
+};
 
-export interface Worker {
+export type TaskStatus = "working" | "needs_you" | "done" | "failed" | "idle";
+
+/**
+ * One coding-agent session. Mimir tracks sessions it started, sessions the
+ * user asked it to continue, and shows recent sessions from every agent.
+ */
+export interface Task {
+  /** `${agent}:${externalId}`, stable across restarts and agents. */
   id: string;
   agent: AgentKind;
   title: string;
   directory: string;
-  status: WorkerStatus;
-  /** The agent's own session id, e.g. an OpenCode `ses_...` id. */
+  status: TaskStatus;
+  /** The agent's own session id. */
   externalId: string;
-  /** Last thing the worker said, trimmed for display. */
+  /** "mimir" if Mimir started it, "external" if it was started elsewhere. */
+  origin: "mimir" | "external";
+  /** True once Mimir has started or messaged it; only these get spoken updates. */
+  tracked: boolean;
+  /** Last thing the agent said, trimmed for display. */
   lastText?: string;
   error?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export function taskId(agent: AgentKind, externalId: string): string {
+  return `${agent}:${externalId}`;
 }
 
 /**
@@ -47,7 +68,7 @@ export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 
 export interface Approval {
   id: string;
-  workerId: string;
+  taskId: string;
   /** The agent's own request id, e.g. an OpenCode `per_...` id. */
   externalId: string;
   action: string;
@@ -84,7 +105,7 @@ export interface Caption {
 
 export interface ForemanActivity {
   busy: boolean;
-  /** Short human label, e.g. "Starting a worker in openmimir". */
+  /** Short human label, e.g. "Starting a task in openmimir". */
   label?: string;
 }
 
@@ -98,14 +119,14 @@ export interface ServerInfo {
   foremanModel: string;
   voiceModel: string;
   voiceConfigured: boolean;
-  opencode: { url: string; connected: boolean; version?: string };
+  agents: Array<{ kind: AgentKind; available: boolean; detail?: string }>;
   projects: ProjectRef[];
 }
 
 export interface Snapshot {
   info: ServerInfo;
   messages: ChatMessage[];
-  workers: Worker[];
+  tasks: Task[];
   approvals: Approval[];
   voice: VoiceState;
   activity: ForemanActivity;
@@ -115,7 +136,8 @@ export interface Snapshot {
 export type ServerEvent =
   | { type: "snapshot"; snapshot: Snapshot }
   | { type: "message.upsert"; message: ChatMessage }
-  | { type: "worker.upsert"; worker: Worker }
+  | { type: "task.upsert"; task: Task }
+  | { type: "tasks.replace"; tasks: Task[] }
   | { type: "approval.upsert"; approval: Approval }
   | { type: "voice.state"; voice: VoiceState }
   | { type: "caption"; caption: Caption }

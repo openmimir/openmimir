@@ -1,10 +1,12 @@
-import type { ChatMessage, ForemanActivity } from "@openmimir/protocol";
+import type { ChatMessage, ForemanActivity, Task } from "@openmimir/protocol";
 import { ArrowUp, Mic, Radio } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { TaskLine } from "./TaskCard";
 
-function Message({ message }: { message: ChatMessage }) {
+function Message({ message, task }: { message: ChatMessage; task?: Task }) {
+  if (message.role === "notice" && message.taskId) return <TaskLine task={task} text={message.text} />;
   if (message.role === "notice") {
     return (
       <div className="flex gap-2 border-l-2 border-accent-dim py-0.5 pl-3 text-sm text-well-400">
@@ -39,14 +41,18 @@ function Message({ message }: { message: ChatMessage }) {
 
 export function Chat({
   messages,
+  tasks,
   activity,
   onSend,
   voiceButton,
+  aboveComposer,
 }: {
   messages: ChatMessage[];
+  tasks: Map<string, Task>;
   activity: ForemanActivity;
   onSend: (text: string) => Promise<unknown>;
   voiceButton: React.ReactNode;
+  aboveComposer?: React.ReactNode;
 }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -100,14 +106,18 @@ export function Chat({
               <div className="text-3xl font-semibold tracking-tight text-well-50">
                 What should your agents do?
               </div>
-              <p className="mt-3 text-well-400">
-                Type below or start voice. Try “Start a worker in openmimir that adds a README section on
-                setup.”
+              <p className="mx-auto mt-3 max-w-lg text-well-400">
+                Mimir already sees your recent OpenCode, Claude Code and Codex sessions. Try “How is the
+                reachkit work going?” or “Add a setup section to the openmimir README.”
               </p>
             </div>
           )}
           {messages.map((message) => (
-            <Message key={message.id} message={message} />
+            <Message
+              key={message.id}
+              message={message}
+              task={message.taskId ? tasks.get(message.taskId) : undefined}
+            />
           ))}
           {activity.busy && activity.label && activity.label !== "Thinking" && (
             <div className="pl-5 text-sm text-working">{activity.label}…</div>
@@ -116,6 +126,7 @@ export function Chat({
         </div>
       </div>
       <form onSubmit={submit} className="mx-auto w-full max-w-3xl px-5 pb-5">
+        {aboveComposer}
         {error && <div className="mb-2 text-sm text-failed">{error}</div>}
         <div className="flex items-end gap-2 rounded-2xl border border-well-700 bg-well-900 p-2 focus-within:border-accent-dim">
           {voiceButton}

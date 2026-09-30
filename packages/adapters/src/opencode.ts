@@ -1,6 +1,7 @@
 import type { Subprocess } from "bun";
 import { readSSE } from "./sse.ts";
-import type { AdapterEvent, AdapterHealth, AgentAdapter, FileChange, PermissionDecision } from "./types.ts";
+import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
+import { Emitter } from "./util.ts";
 
 export interface OpenCodeAdapterOptions {
   /** Base URL of an OpenCode v2 server, e.g. http://127.0.0.1:4096 */
@@ -17,16 +18,17 @@ export interface OpenCodeAdapterOptions {
 }
 
 /** Talks to OpenCode v2 over its HTTP API (`/api/...`) and event stream. */
-export class OpenCodeAdapter implements AgentAdapter {
+export class OpenCodeAdapter extends Emitter implements AgentAdapter {
   readonly kind = "opencode";
+  readonly supportsApprovals = true;
   readonly url: string;
   private readonly options: OpenCodeAdapterOptions;
-  private readonly listeners = new Set<(event: AdapterEvent) => void>();
   private child: Subprocess | undefined;
   private streamAbort: AbortController | undefined;
   private stopped = false;
 
   constructor(options: OpenCodeAdapterOptions) {
+    super();
     this.options = options;
     this.url = options.url.replace(/\/$/, "");
   }
@@ -138,21 +140,6 @@ export class OpenCodeAdapter implements AgentAdapter {
     return health;
   }
 
-  onEvent(listener: (event: AdapterEvent) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  private emit(event: AdapterEvent) {
-    for (const listener of this.listeners) {
-      try {
-        listener(event);
-      } catch (error) {
-        this.log(`listener error: ${error instanceof Error ? error.message : error}`);
-      }
-    }
-  }
-
   private async streamEvents() {
     let delay = 500;
     while (!this.stopped) {
@@ -225,33 +212,75 @@ export class OpenCodeAdapter implements AgentAdapter {
     }
   }
 
-  async createSession(input: { directory: string; title: string; guardedCommands?: string[] }) {
+  async listRecent(limit: number): Promise<SessionSummary[]> {
+    const [sessions, active] = await Promise.all([
+      this.request<{
+        data: Array<{
+          id: string;
+          title?: string;
+          location: { directory: string };
+          time: { created: number; updated: number };
+        }>;
+      }>("GET", `/api/session?limit=${limit}&order=desc&parentID=null`),
+      this.request<{ data: Record<string, unknown> }>("GET", "/api/session/active").catch(() => ({
+        data: {},
+      })),
+    ]);
+    return sessions.data.map((session) => ({
+      externalId: session.id,
+      title: session.title || "Untitled session",
+      directory: session.location.directory,
+      createdAt: session.time.created,
+      updatedAt: session.time.updated,
+      running: session.id in active.data,
+    }));
+  }
+
+  async createSession(input: {
+    directory: string;
+    title: string;
+    prompt: string;
+    guardedCommands: string[];
+  }) {
     const result = await this.request<{ data: { id: string } }>("POST", "/api/session", {
       title: input.title,
       location: { directory: input.directory },
       metadata: { createdBy: "openmimir" },
-      // Session rules take precedence over the user's global OpenCode config.
-      permissions: (input.guardedCommands ?? []).map((resource) => ({
-        action: "shell",
-        resource,
-        effect: "ask",
-      })),
+      permissions: guardRules(input.guardedCommands),
     });
+    await this.request("POST", `/api/session/${result.data.id}/prompt`, { text: input.prompt });
     return { externalId: result.data.id };
   }
 
-  async prompt(externalId: string, text: string) {
-    await this.request("POST", `/api/session/${externalId}/prompt`, { text });
+  async prompt(session: { externalId: string }, text: string, guardedCommands: string[]) {
+    // Sessions started elsewhere get Mimir's guard rules (merged with their own) before Mimir drives them.
+    try {
+      const current = await this.request<{
+        data: { permissions?: Array<{ action: string; resource: string; effect: string }> };
+      }>("GET", `/api/session/${session.externalId}`);
+      const existing = current.data.permissions ?? [];
+      const missing = guardRules(guardedCommands).filter(
+        (rule) => !existing.some((r) => r.action === rule.action && r.resource === rule.resource),
+      );
+      if (missing.length > 0) {
+        await this.request("PATCH", `/api/session/${session.externalId}`, {
+          permissions: [...existing, ...missing],
+        });
+      }
+    } catch (error) {
+      this.log(`could not apply guard rules: ${error instanceof Error ? error.message : error}`);
+    }
+    await this.request("POST", `/api/session/${session.externalId}/prompt`, { text });
   }
 
   async interrupt(externalId: string) {
     await this.request("POST", `/api/session/${externalId}/interrupt`);
   }
 
-  async lastAssistantText(externalId: string): Promise<string | undefined> {
+  async lastAssistantText(session: { externalId: string }): Promise<string | undefined> {
     const result = await this.request<{
       data: Array<{ type: string; content?: Array<{ type: string; text?: string }> }>;
-    }>("GET", `/api/session/${externalId}/message?limit=20&order=desc`);
+    }>("GET", `/api/session/${session.externalId}/message?limit=20&order=desc`);
     for (const message of result.data) {
       if (message.type !== "assistant" || !message.content) continue;
       const text = message.content
@@ -264,10 +293,10 @@ export class OpenCodeAdapter implements AgentAdapter {
     return undefined;
   }
 
-  async diff(externalId: string): Promise<FileChange[]> {
+  async diff(session: { externalId: string }): Promise<FileChange[]> {
     const result = await this.request<{ data: FileChange[] }>(
       "GET",
-      `/api/session/${externalId}/diff?context=3`,
+      `/api/session/${session.externalId}/diff?context=3`,
     );
     return result.data;
   }
@@ -277,6 +306,11 @@ export class OpenCodeAdapter implements AgentAdapter {
       decision,
     });
   }
+}
+
+/** Session rules take precedence over the user's global OpenCode config. */
+function guardRules(commands: string[]) {
+  return commands.map((resource) => ({ action: "shell", resource, effect: "ask" }));
 }
 
 function describeError(error: unknown): string {

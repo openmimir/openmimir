@@ -1,15 +1,15 @@
-import { type Approval, type ApprovalDecision, describeAction, type Worker } from "@openmimir/protocol";
+import { type Approval, type ApprovalDecision, describeAction, type Task } from "@openmimir/protocol";
 import { Check, Mic, Monitor, X } from "lucide-react";
 import { useState } from "react";
 
 export function ApprovalCard({
   approval,
-  worker,
+  task,
   big = false,
   onResolve,
 }: {
   approval: Approval;
-  worker?: Worker;
+  task?: Task;
   big?: boolean;
   onResolve: (id: string, decision: ApprovalDecision) => Promise<unknown>;
 }) {
@@ -38,7 +38,7 @@ export function ApprovalCard({
         </span>
       </div>
       <div className={`mt-1 font-semibold text-well-50 ${big ? "text-3xl" : "text-sm"}`}>
-        {worker?.title ?? "Worker"} wants to{" "}
+        {task?.title ?? "A task"} wants to{" "}
         <span className="text-needs">{describeAction(approval.action, [])}</span>
       </div>
       {approval.resources.length > 0 && (

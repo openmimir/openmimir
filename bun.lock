@@ -47,6 +47,9 @@
     "packages/adapters": {
       "name": "@openmimir/adapters",
       "version": "0.1.0",
+      "dependencies": {
+        "@openmimir/protocol": "workspace:*",
+      },
     },
     "packages/core": {
       "name": "@openmimir/core",

@@ -9,10 +9,12 @@ Browser tab ──WebRTC audio────────────────�
     ▼                                                       │ sideband WebSocket
 Mimir server (apps/cli) ◄───────────────────────────────────┘
     ├─ Foreman (packages/core)    frontier model + tools, one ongoing conversation
-    ├─ WorkerManager              worker state, approvals, announcements
+    ├─ TaskManager                tasks across agents, approvals, announcements
     ├─ Store                      SQLite in ~/.openmimir/mimir.db
     └─ Adapters (packages/adapters)
-          └─ OpenCode v2 server (`opencode serve`, started by Mimir if needed)
+          ├─ OpenCode v2 server (`opencode serve`, started by Mimir if needed)
+          ├─ Claude Code (`claude -p`, transcripts in ~/.claude/projects)
+          └─ Codex (`codex exec`, rollouts in ~/.codex/sessions)
 ```
 
 ## The foreman
@@ -20,16 +22,34 @@ Mimir server (apps/cli) ◄─────────────────�
 `packages/core/src/foreman.ts`. One conversation, persisted in SQLite. Each request gets:
 
 - a fixed system prompt (role, rules, approval policy),
-- a **state summary** rebuilt every turn: known projects, workers and their status, pending
-  approvals. This keeps the context small; details stay inside each worker's own session and are
+- a **state summary** rebuilt every turn: known projects, recent tasks across all agents (including
+  sessions the user started outside Mimir), pending approvals. This keeps the context small; details
+  stay inside each agent's own session and are
   fetched with tools when needed.
 - the last 40 messages.
 
 Requests are handled one at a time so the conversation stays ordered. Tools: `list_projects`,
-`start_worker`, `message_worker`, `worker_status`, `worker_changes`, `stop_worker`,
+`recent_tasks`, `start_task`, `message_task`, `task_status`, `task_changes`, `stop_task`,
 `resolve_approval`.
 
 Replies adapt to the channel: markdown for the keyboard, two or three spoken sentences for voice.
+
+## Tasks and agents
+
+Every agent session is a task, with the id `${agent}:${externalId}`. Each adapter can list its recent
+sessions (`listRecent`), so the foreman sees what the user did at their desk, not just what Mimir
+started. Continuing an existing session is the same call as following up on a Mimir task.
+
+- **OpenCode** is driven over its HTTP API and event stream. It supports approvals, so Mimir adds
+  session rules that force risky shell commands to ask (merged with the session's own rules).
+- **Claude Code** runs one headless turn per message (`claude -p --resume <id>`). Risky commands are
+  blocked with `--disallowedTools`, since it cannot pause for Mimir's approval.
+- **Codex** runs `codex exec [resume <id>] --json` and relies on the user's Codex sandbox settings.
+
+Sessions touched outside Mimir in the last few minutes may be open on the user's screen; the foreman
+asks before sending to them.
+
+Only tasks Mimir started or continued get spoken updates. The rest are shown, not narrated.
 
 ## Voice
 
@@ -44,7 +64,7 @@ Replies adapt to the channel: markdown for the keyboard, two or three spoken sen
    transcript deltas into turns (captions for every interface), and when GPT-Live emits
    `session.delegation.created`, it hands what the user said to the foreman. Progress goes back as
    `session.thinking.append`; the answer as `session.commentary.append`.
-4. Worker events (finished, failed, needs approval) are queued and injected with
+4. Task events (finished, failed, needs approval) are queued and injected with
    `session.commentary.append` once nobody has spoken for 1.5 seconds.
 
 ## Approvals

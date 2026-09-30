@@ -139,8 +139,12 @@ export function App() {
   ));
 
   if (mode === "trainer") {
-    // Glanceable: what is running or waiting, and what Mimir is working with right now.
-    const focus = sessions.filter((t) => isActive(t) || inFocus(t));
+    // The conversation already shows every session Mimir touches, with live status.
+    // On top of that, only what needs action or is worth a glance: waiting sessions and a running count.
+    const running = snapshot.sessions.filter((t) => t.status === "working").length;
+    const waiting = snapshot.sessions.filter(
+      (t) => t.status === "needs_you" && !snapshot.approvals.some((a) => a.sessionId === t.id),
+    );
     return (
       <div className="flex h-full flex-col gap-4 p-4 sm:p-6">
         <header className="flex items-center gap-4">
@@ -152,6 +156,11 @@ export function App() {
             <div className="text-lg text-well-400">
               {voiceActive ? formatDuration(seconds) : "Tap the well to talk"}
               {voice.muted && <span className="ml-3 text-needs">muted</span>}
+              {running > 0 && (
+                <span className="ml-3 font-semibold text-working">
+                  {running} session{running === 1 ? "" : "s"} running
+                </span>
+              )}
             </div>
           </div>
           {voiceActive && (
@@ -176,20 +185,17 @@ export function App() {
 
         {voice.error && <div className="text-xl text-failed">{voice.error}</div>}
 
-        {approvals.length > 0 && <div className="flex flex-col gap-3">{approvals}</div>}
+        {(approvals.length > 0 || waiting.length > 0) && (
+          <div className="flex flex-col gap-3">
+            {approvals}
+            {waiting.map((session) => (
+              <GlanceRow key={session.id} session={session} />
+            ))}
+          </div>
+        )}
 
-        <main className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[3fr_2fr]">
+        <main className="flex min-h-0 flex-1 flex-col">
           <TrainerFeed messages={snapshot.messages} sessions={sessionsById} />
-          {/* Never scrolls: a fixed number of compact rows you can read at a glance. */}
-          <section className="flex shrink-0 flex-col gap-2 overflow-hidden">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-well-500">In focus</h2>
-            {focus.length === 0 ? (
-              <div className="text-xl text-well-500">Nothing running or in focus.</div>
-            ) : (
-              focus.slice(0, 4).map((session) => <GlanceRow key={session.id} session={session} />)
-            )}
-            {focus.length > 4 && <div className="text-lg text-well-500">+{focus.length - 4} more</div>}
-          </section>
         </main>
 
         <footer className="min-h-28 rounded-2xl border border-well-700 bg-well-900 p-5">

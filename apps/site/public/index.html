@@ -6,7 +6,7 @@
     <title>OpenMimir: talk to all your coding agents, hands-free</title>
     <meta
       name="description"
-      content="One conversation in front of OpenCode, Claude Code and Codex. Type to it, or talk to it full duplex from your desk, a trainer or a walk. Open source, runs on your Mac."
+      content="One conversation in front of Claude Code, Codex and OpenCode. Type to it, or talk to it full duplex from your desk, a trainer or a walk. Open source, runs on your Mac."
     />
     <meta property="og:title" content="OpenMimir" />
     <meta
@@ -20,94 +20,172 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
+    <div class="backdrop" aria-hidden="true"></div>
+
     <header class="nav">
-      <a class="brand" href="/">
-        <img src="/favicon.svg" alt="" width="26" height="26" />
-        OpenMimir
-      </a>
-      <nav>
-        <a href="#how">How it works</a>
-        <a href="#faq">FAQ</a>
-        <a href="https://github.com/openmimir/openmimir">GitHub</a>
-      </nav>
+      <div class="nav-inner">
+        <a class="brand" href="/">
+          <img src="/favicon.svg" alt="" width="26" height="26" />
+          OpenMimir
+        </a>
+        <nav>
+          <a href="#agents">Agents</a>
+          <a href="#how">How it works</a>
+          <a href="#faq">FAQ</a>
+          <a class="gh" href="https://github.com/openmimir/openmimir">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 0-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6 0-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8.1 3.2.8.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1.1.9 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"
+              />
+            </svg>
+            GitHub
+          </a>
+        </nav>
+      </div>
     </header>
 
     <main>
       <section class="hero">
-        <div class="well" aria-hidden="true"><span></span><span></span><span></span><i></i></div>
-        <h1>One conversation for all your coding agents.</h1>
-        <p class="lead">
-          OpenMimir sits in front of OpenCode, Claude Code and Codex. It sees every session, including the ones you
-          started yourself, starts new work, and tells you what matters. Type to it, or talk to it hands-free while
-          you ride, run or walk.
-        </p>
-        <div class="install">
-          <code id="cmd">curl -fsSL https://openmimir.com/install.sh | bash</code>
-          <button type="button" id="copy" aria-label="Copy install command">Copy</button>
+        <div class="hero-copy">
+          <p class="pill reveal"><span class="dot"></span> Open source · macOS · bring your own keys</p>
+          <h1 class="reveal">One conversation for <span class="grad">all your coding agents.</span></h1>
+          <p class="lead reveal">
+            OpenMimir sits in front of Claude Code, Codex and OpenCode. It sees every session, starts new work and
+            tells you what matters. Type to it, or talk to it hands-free while you ride, run or walk.
+          </p>
+          <div class="install reveal">
+            <span class="prompt">$</span>
+            <code id="cmd">curl -fsSL https://openmimir.com/install.sh | bash</code>
+            <button type="button" id="copy" aria-label="Copy install command">Copy</button>
+          </div>
+          <div class="works reveal">
+            <span>Works with</span>
+            <span class="chip chip-claude"><img src="/icons/claude.svg" alt="" /> Claude Code</span>
+            <span class="chip"><img src="/icons/codex.svg" alt="" /> Codex</span>
+            <span class="chip"><img src="/icons/opencode.svg" alt="" /> OpenCode</span>
+          </div>
         </div>
-        <p class="small">macOS · open source (MIT) · bring your own API keys</p>
+
+        <div class="demo reveal" aria-label="An example conversation with OpenMimir">
+          <div class="demo-bar">
+            <span class="lights"><i></i><i></i><i></i></span>
+            <span class="demo-title">OpenMimir</span>
+            <span class="live"><span class="wave"><i></i><i></i><i></i><i></i></span> Listening</span>
+          </div>
+          <div class="demo-body" id="demo"></div>
+          <div class="demo-foot">
+            <div class="well" aria-hidden="true"><span></span><span></span><span></span><i></i></div>
+            <span id="caption" class="caption">Press ⌘⇧Space and talk</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="agents" class="agents">
+        <h2 class="reveal">Your agents, one voice.</h2>
+        <p class="sub reveal">You never pick an agent, a session or an id. Mimir knows where the work lives.</p>
+        <div class="agent-grid">
+          <article class="agent agent-claude reveal">
+            <div class="agent-logo"><img src="/icons/claude.svg" alt="" /></div>
+            <h3>Claude Code</h3>
+            <p>
+              Sends follow-ups into the sessions you already have open and starts new ones headless. Risky tools
+              stay blocked until you say so.
+            </p>
+            <div class="agent-sample">
+              <span class="st st-work"></span> Fix flaky login test <em>web-app</em>
+            </div>
+          </article>
+          <article class="agent reveal">
+            <div class="agent-logo"><img src="/icons/codex.svg" alt="" /></div>
+            <h3>Codex</h3>
+            <p>Picks up any Codex thread, including last week's, and reports back when it finishes.</p>
+          </article>
+          <article class="agent reveal">
+            <div class="agent-logo"><img src="/icons/opencode.svg" alt="" /></div>
+            <h3>OpenCode</h3>
+            <p>Talks to your OpenCode service, so every message Mimir sends shows up live in the app.</p>
+          </article>
+        </div>
       </section>
 
       <section class="features">
-        <article>
+        <article class="reveal">
+          <div class="ico">
+            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+          </div>
           <h3>One thread above every session</h3>
           <p>
-            “How's the billing refactor going?” or “pick up the review from last week” just work. Mimir searches
-            every agent's full history, so you never name an agent or a session.
+            “How's the billing refactor going?” or “pick up the review from last week” just work. It searches every
+            agent's full history.
           </p>
         </article>
-        <article>
+        <article class="reveal">
+          <div class="ico">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />
+            </svg>
+          </div>
           <h3>Real full-duplex voice</h3>
           <p>
-            It listens while it talks, you can interrupt it, and live captions show what it heard. Before starting
-            work by voice it reads the plan back and waits for your yes.
+            It listens while it talks and you can cut in. Live captions show what it heard, and it reads the plan
+            back before starting work.
           </p>
         </article>
-        <article>
+        <article class="reveal">
+          <div class="ico">
+            <svg viewBox="0 0 24 24">
+              <circle cx="5.5" cy="17.5" r="3.5" />
+              <circle cx="18.5" cy="17.5" r="3.5" />
+              <path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm-3 11.5V14l-3-3 4-3 2 3h2" />
+            </svg>
+          </div>
           <h3>Built for the trainer</h3>
           <p>
-            Trainer mode turns an iPad on the handlebars into a big, glanceable screen: the conversation, what is
-            running, and huge approve buttons. Nothing to scroll.
+            Trainer mode turns an iPad on the handlebars into a big, glanceable screen with huge approve buttons.
+            Nothing to scroll.
           </p>
         </article>
-        <article>
+        <article class="reveal">
+          <div class="ico">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+          </div>
           <h3>You stay in control</h3>
           <p>
-            Risky commands like pushes, deploys and <code>rm -rf</code> wait for your approval, and voice can never
-            approve them. Everything runs on your Mac; nothing is sent to us.
+            Pushes, deploys and <code>rm -rf</code> wait for your approval, and voice can never approve them. It
+            all runs on your Mac.
           </p>
         </article>
       </section>
 
       <section id="how" class="how">
-        <h2>How it works</h2>
-        <ol>
-          <li>
-            <strong>Install and set up.</strong> Run the command above, then <code>mimir init</code> to add an
-            OpenAI key (voice and the default model) and point it at your project folders.
+        <h2 class="reveal">Running in a minute.</h2>
+        <ol class="steps">
+          <li class="reveal">
+            <span class="num">1</span>
+            <h3>Install</h3>
+            <p>Run the one-liner above. It puts <code>mimir</code> in <code>~/.openmimir/bin</code>.</p>
           </li>
-          <li>
-            <strong>Start it.</strong> Run <code>mimir</code> and open <code>localhost:4747</code>. It connects to
-            your OpenCode, Claude Code and Codex, whichever you have.
+          <li class="reveal">
+            <span class="num">2</span>
+            <h3>Set up</h3>
+            <p><code>mimir init</code> asks for an OpenAI key and where your projects live.</p>
           </li>
-          <li>
-            <strong>Talk or type.</strong> Ask what you were working on, send a session a follow-up, or start
-            something new. Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd> to talk.
+          <li class="reveal">
+            <span class="num">3</span>
+            <h3>Talk or type</h3>
+            <p>Run <code>mimir</code>, open <code>localhost:4747</code> and press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd>.</p>
           </li>
         </ol>
-        <pre class="diagram">
- Keyboard · trainer screen · full-duplex voice
-                    │
-          OpenMimir on your Mac
-   one conversation · memory · approvals
-                    │
-     OpenCode · Claude Code · Codex</pre
-        >
       </section>
 
       <section id="faq" class="faq">
-        <h2>FAQ</h2>
-        <details>
+        <h2 class="reveal">Questions</h2>
+        <details class="reveal">
           <summary>What does it cost?</summary>
           <p>
             OpenMimir is free. You bring your own keys, so you pay providers directly: voice uses OpenAI's
@@ -115,38 +193,46 @@
             that runs the conversation and whatever your agents use.
           </p>
         </details>
-        <details>
+        <details class="reveal">
           <summary>Which agents does it work with?</summary>
           <p>
-            OpenCode, Claude Code and Codex. Messages it sends to OpenCode appear live in your OpenCode app. You only
-            need the agents you already use.
+            Claude Code, Codex and OpenCode. You only need the ones you already use; Mimir finds them on its own.
           </p>
         </details>
-        <details>
+        <details class="reveal">
           <summary>Can I use it from an iPad or phone?</summary>
           <p>
             Yes. Browsers only allow the microphone over HTTPS, so put Tailscale Serve (or a Cloudflare Tunnel) in
             front of it, run <code>mimir pair</code> and open the link on the device once.
           </p>
         </details>
-        <details>
+        <details class="reveal">
           <summary>Where does my data go?</summary>
           <p>
             Your conversation and settings stay in <code>~/.openmimir</code> on your Mac. Audio goes from your browser
             straight to OpenAI's voice model; requests go to the model provider you choose. There is no telemetry.
           </p>
         </details>
-        <details>
+        <details class="reveal">
           <summary>Does it work outdoors or without a screen?</summary>
           <p>
             Not yet. Desk and indoor trainer work today. Phone calls, a screenless mode for rides and runs, and a
             desktop app are next.
           </p>
         </details>
-        <details>
+        <details class="reveal">
           <summary>Linux or Windows?</summary>
           <p>macOS first. The code is portable, and other platforms will follow.</p>
         </details>
+      </section>
+
+      <section class="cta reveal">
+        <h2>Give your agents a voice.</h2>
+        <div class="install">
+          <span class="prompt">$</span>
+          <code>curl -fsSL https://openmimir.com/install.sh | bash</code>
+          <button type="button" class="copy2" aria-label="Copy install command">Copy</button>
+        </div>
       </section>
     </main>
 
@@ -156,12 +242,6 @@
       <a href="https://github.com/openmimir/openmimir/blob/main/SECURITY.md">Security</a>
     </footer>
 
-    <script>
-      document.getElementById("copy").addEventListener("click", async (event) => {
-        await navigator.clipboard.writeText(document.getElementById("cmd").textContent);
-        event.target.textContent = "Copied";
-        setTimeout(() => (event.target.textContent = "Copy"), 1500);
-      });
-    </script>
+    <script src="/site.js" defer></script>
   </body>
 </html>

@@ -8,6 +8,9 @@ const TURN_GAP_MS = 1200;
 const QUIET_BEFORE_ANNOUNCE_MS = 1500;
 /** Roughly 450 tokens; each append is limited to 500. */
 const MAX_APPEND_CHARS = 1800;
+/** Delegated work shorter than this gets no progress note at all. */
+const PROGRESS_AFTER_MS = 6_000;
+const PROGRESS_EVERY_MS = 10_000;
 /** Reflected microphone audio kept for fallback transcription. */
 const AUDIO_BUFFER_MS = 30_000;
 /** How far back fallback transcription looks for the request. */
@@ -287,11 +290,19 @@ export class LiveVoice {
         return;
       }
       this.log(`delegation ${delegationId}: ${utterance}`);
+      // Quick lookups finish before a progress note would help; only long work gets one,
+      // otherwise the voice model says "still checking" right before the answer lands.
+      let lastProgressAt = 0;
       const progress = (label: string) => {
+        const now = Date.now();
+        if (now - requestedAt < PROGRESS_AFTER_MS || now - lastProgressAt < PROGRESS_EVERY_MS) return;
+        lastProgressAt = now;
         this.send({
           type: "session.thinking.append",
           delegation_id: delegationId,
-          content: clip(`Progress: ${label}. Not finished yet.`),
+          content: clip(
+            `Still working on it: ${label}. Only mention this if the user asks what is happening.`,
+          ),
         });
       };
       const answer = await this.options.onDelegation(utterance, progress);

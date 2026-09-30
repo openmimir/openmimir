@@ -80,6 +80,27 @@ export function SessionCard({
   );
 }
 
+/** A session for the trainer screen: one line, big type, status first. */
+export function GlanceRow({ session }: { session: AgentSession }) {
+  const status = STATUS[session.status];
+  const Icon = status.icon;
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-well-700 bg-well-900 px-4 py-3">
+      <Icon
+        size={26}
+        className={`shrink-0 ${status.color} ${session.status === "working" ? "animate-spin [animation-duration:2s]" : ""}`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-xl font-semibold text-well-50">{session.title}</div>
+        <div className="truncate text-base text-well-400">
+          <span className={`font-semibold ${status.color}`}>{status.label}</span> ·{" "}
+          {AGENT_LABELS[session.agent]} · {projectName(session.directory)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** One line in the conversation that tracks a session's live status. */
 export function SessionLine({
   session,

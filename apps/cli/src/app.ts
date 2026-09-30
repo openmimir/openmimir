@@ -151,7 +151,7 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
       await refreshHealth();
       await sessions.refresh(true).catch(() => undefined);
       timers.push(setInterval(() => void refreshHealth(), 10_000));
-      timers.push(setInterval(() => void sessions.refresh().catch(() => undefined), 30_000));
+      timers.push(setInterval(() => void sessions.refresh().catch(() => undefined), 5_000));
     },
     async stop() {
       for (const timer of timers) clearInterval(timer);

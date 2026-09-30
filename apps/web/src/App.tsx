@@ -5,7 +5,7 @@ import { ApprovalCard } from "./components/ApprovalCard";
 import { Chat } from "./components/Chat";
 import { Logo } from "./components/Logo";
 import { Orb, type OrbMode } from "./components/Orb";
-import { SessionCard } from "./components/SessionCard";
+import { GlanceRow, SessionCard } from "./components/SessionCard";
 import { SessionDetail } from "./components/SessionDetail";
 import { TrainerFeed } from "./components/TrainerFeed";
 import { formatDuration } from "./lib/format";
@@ -140,7 +140,7 @@ export function App() {
 
   if (mode === "trainer") {
     // Glanceable: what is running or waiting, and what Mimir is working with right now.
-    const shown = sessions.filter((t) => isActive(t) || inFocus(t)).slice(0, 4);
+    const focus = sessions.filter((t) => isActive(t) || inFocus(t));
     return (
       <div className="flex h-full flex-col gap-4 p-4 sm:p-6">
         <header className="flex items-center gap-4">
@@ -180,13 +180,15 @@ export function App() {
 
         <main className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[3fr_2fr]">
           <TrainerFeed messages={snapshot.messages} sessions={sessionsById} />
-          <section className="scroll-thin flex max-h-[40%] min-h-0 shrink-0 flex-col gap-3 overflow-y-auto lg:max-h-none">
+          {/* Never scrolls: a fixed number of compact rows you can read at a glance. */}
+          <section className="flex shrink-0 flex-col gap-2 overflow-hidden">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-well-500">In focus</h2>
-            {shown.length === 0 ? (
+            {focus.length === 0 ? (
               <div className="text-xl text-well-500">Nothing running or in focus.</div>
             ) : (
-              shown.map((session) => <SessionCard key={session.id} session={session} big />)
+              focus.slice(0, 4).map((session) => <GlanceRow key={session.id} session={session} />)
             )}
+            {focus.length > 4 && <div className="text-lg text-well-500">+{focus.length - 4} more</div>}
           </section>
         </main>
 

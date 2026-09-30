@@ -37,6 +37,7 @@ export class SessionManager {
   private readonly lastRejection = new Map<string, number>();
   private recentCache: { at: number; sessions: AgentSession[] } | undefined;
   private refreshing: Promise<AgentSession[]> | undefined;
+  private lastPublished = "";
 
   constructor(
     private readonly adapters: Map<AgentKind, AgentAdapter>,
@@ -70,14 +71,16 @@ export class SessionManager {
 
   /** Tracked sessions plus recent sessions from every agent, newest first. */
   list(): AgentSession[] {
+    // Freshly listed sessions already carry Mimir's stored state (see fromSummary), so they
+    // win; stored sessions only fill in ones that dropped off the agents' recent lists.
     const merged = new Map<string, AgentSession>();
-    for (const session of this.recentCache?.sessions ?? []) merged.set(session.id, session);
     for (const session of this.store.sessions(40)) merged.set(session.id, session);
+    for (const session of this.recentCache?.sessions ?? []) merged.set(session.id, session);
     return [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   get(id: string): AgentSession | undefined {
-    return this.store.session(id) ?? this.recentCache?.sessions.find((t) => t.id === id);
+    return this.recentCache?.sessions.find((t) => t.id === id) ?? this.store.session(id);
   }
 
   pendingApprovals(): Approval[] {
@@ -104,7 +107,12 @@ export class SessionManager {
       );
       this.recentCache = { at: Date.now(), sessions: results.flat() };
       const sessions = this.list();
-      this.bus.publish({ type: "sessions.replace", sessions });
+      // Refreshes run every few seconds; only tell interfaces when something changed.
+      const fingerprint = JSON.stringify(sessions);
+      if (fingerprint !== this.lastPublished) {
+        this.lastPublished = fingerprint;
+        this.bus.publish({ type: "sessions.replace", sessions });
+      }
       return sessions;
     })().finally(() => {
       this.refreshing = undefined;
@@ -115,6 +123,10 @@ export class SessionManager {
   private fromSummary(agent: AgentKind, s: SessionSummary): AgentSession {
     const id = sessionKey(agent, s.externalId);
     const tracked = this.store.session(id);
+    if (tracked && !tracked.tracked) {
+      // Mimir only looked at it: everything but focusedAt comes from the agent.
+      return { ...this.external(id, agent, s), focusedAt: tracked.focusedAt };
+    }
     if (tracked) {
       // Keep Mimir's own state, but take fresher details from the agent. The user may
       // also be running it from their own window, which Mimir only sees by inference.
@@ -133,6 +145,10 @@ export class SessionManager {
         lastText: s.lastText?.slice(-TEXT_PREVIEW) ?? tracked.lastText,
       };
     }
+    return this.external(id, agent, s);
+  }
+
+  private external(id: string, agent: AgentKind, s: SessionSummary): AgentSession {
     return {
       id,
       agent,

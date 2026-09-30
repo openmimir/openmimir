@@ -45,7 +45,7 @@ How you work:
 - New session instructions must be self-contained: the agent cannot see this conversation. Include the goal, context, constraints and what "done" means.
 - Follow-ups on existing work go to that session with message_session, so the agent keeps its context.
 - Sessions the user touched in the last few minutes outside Mimir may be open on their screen. message_session will say so; then ask the user before sending.
-- For progress questions, check with session_status or session_changes instead of guessing.
+- For progress questions, check with session_status or session_changes instead of guessing. Your earlier replies note which sessions you already checked: reuse that for follow-up questions, and only check again if the session is running, the user asks for an update, or it has been a while.
 - Never claim something is done, merged, pushed or fixed unless a tool result says so.
 - Keep answers short and concrete. Lead with the answer.
 
@@ -59,6 +59,21 @@ const VOICE_NOTE = `This request came in by voice. A separate voice model will s
 const TEXT_NOTE = `This request came in by keyboard. Markdown is fine. Stay concise.`;
 
 const AGENT_ENUM = z.enum(["opencode", "claude", "codex"]);
+
+/** Earlier replies carry a note of what was looked at, so follow-ups do not repeat the work. */
+function withStepNotes(message: ChatMessage, sessions: SessionManager): string {
+  const notes = (message.steps ?? [])
+    .filter((step) => step.state === "done")
+    .map((step) => {
+      const session = step.sessionId ? sessions.get(step.sessionId) : undefined;
+      if (!session) return step.label;
+      const project = session.directory.split("/").filter(Boolean).pop();
+      return `${step.label} "${session.title}" (${AGENT_LABELS[session.agent]}, ${project}, ${session.id})`;
+    });
+  if (notes.length === 0) return message.text;
+  const at = new Date(message.createdAt).toISOString().slice(11, 16);
+  return `${message.text}\n\n[Mimir's own notes at ${at} UTC, not shown to the user: ${notes.join("; ")}.]`;
+}
 
 type BeginStep = (
   label: string,
@@ -145,7 +160,7 @@ export class Foreman {
       if (m.role === "user") {
         result.push({ role: "user", content: m.source === "voice" ? `(spoken) ${m.text}` : m.text });
       } else if (m.role === "assistant") {
-        result.push({ role: "assistant", content: m.text });
+        result.push({ role: "assistant", content: withStepNotes(m, this.deps.sessions) });
       } else {
         result.push({ role: "user", content: `[update from Mimir, not the user] ${m.text}` });
       }

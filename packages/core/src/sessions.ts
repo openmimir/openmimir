@@ -14,10 +14,12 @@ import { classifyApproval, GUARDED_SHELL_COMMANDS } from "./policy.ts";
 import type { Store } from "./store.ts";
 
 export interface Announcement {
-  kind: "started" | "done" | "failed" | "approval" | "stopped";
+  kind: "started" | "finished" | "failed" | "approval" | "stopped";
   sessionId: string;
   /** Short, speakable summary. */
   text: string;
+  /** For "finished": the agent's full final reply, so the foreman can report on it. */
+  result?: string;
 }
 
 const TEXT_PREVIEW = 600;
@@ -177,6 +179,10 @@ export class SessionManager {
   private save(session: AgentSession, patch: Partial<AgentSession> = {}): AgentSession {
     const next = { ...session, ...patch, updatedAt: Date.now() };
     this.store.saveSession(next);
+    // Keep the cached list in step, or the next refresh would publish the old status.
+    if (this.recentCache) {
+      this.recentCache.sessions = this.recentCache.sessions.map((s) => (s.id === next.id ? next : s));
+    }
     this.bus.publish({ type: "session.upsert", session: next });
     return next;
   }
@@ -282,12 +288,19 @@ export class SessionManager {
         this.save(session, { lastText: event.text.slice(-TEXT_PREVIEW) });
         break;
       case "succeeded": {
-        const next = this.save(session, { status: this.hasPending(session.id) ? "needs_you" : "done" });
-        this.announce({
-          kind: "done",
-          sessionId: session.id,
-          text: `"${session.title}" is done. ${summarize(next.lastText)}`,
-        });
+        const next = this.save(session, { status: this.hasPending(session.id) ? "needs_you" : "idle" });
+        // lastText is only a preview; fetch the whole reply so the foreman can report on it.
+        void this.adapter(session.agent)
+          .lastAssistantText(session)
+          .catch(() => undefined)
+          .then((result) =>
+            this.announce({
+              kind: "finished",
+              sessionId: session.id,
+              text: `"${session.title}" finished. ${summarize(result ?? next.lastText)}`,
+              result: result ?? next.lastText,
+            }),
+          );
         break;
       }
       case "failed":
@@ -375,7 +388,7 @@ function summarize(text: string | undefined): string {
 }
 
 export function statusLabel(status: SessionStatus): string {
-  return { working: "working", needs_you: "needs you", done: "done", failed: "failed", idle: "idle" }[status];
+  return { working: "running", needs_you: "needs you", failed: "failed", idle: "idle" }[status];
 }
 
 export function ago(timestamp: number): string {

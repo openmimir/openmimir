@@ -68,12 +68,30 @@ function StepRow({
         </button>
         {session && <SessionChip session={session} onOpen={onOpenSession} big={big} />}
       </div>
+      {step.message && <SentMessage text={step.message} big={big} />}
       {open && step.detail && (
         <pre className="mt-1.5 ml-5 max-h-60 overflow-auto whitespace-pre-wrap rounded-lg border border-well-800 bg-well-950 p-2.5 font-mono text-xs text-well-400 scroll-thin">
           {step.detail}
         </pre>
       )}
     </li>
+  );
+}
+
+/** The exact message Mimir sent to a session, always visible; long ones expand on click. */
+function SentMessage({ text, big }: { text: string; big: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded(!expanded)}
+      className={`mt-1.5 ml-5 block w-[calc(100%-1.25rem)] rounded-lg border-l-2 border-accent-dim bg-well-900 px-3 py-2 text-left text-well-200 ${
+        big ? "text-base" : "text-xs"
+      }`}
+      title={expanded ? "Show less" : "Show the full message"}
+    >
+      <span className={`block whitespace-pre-wrap ${expanded ? "" : "line-clamp-3"}`}>{text}</span>
+    </button>
   );
 }
 

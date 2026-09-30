@@ -1,10 +1,9 @@
 import type { SessionStatus } from "@openmimir/protocol";
-import { AlertTriangle, CheckCircle2, CircleDashed, Hand, LoaderCircle, type LucideIcon } from "lucide-react";
+import { AlertTriangle, CircleDashed, Hand, LoaderCircle, type LucideIcon } from "lucide-react";
 
 export const STATUS: Record<SessionStatus, { label: string; color: string; bg: string; icon: LucideIcon }> = {
-  working: { label: "Working", color: "text-working", bg: "bg-working", icon: LoaderCircle },
+  working: { label: "Running", color: "text-working", bg: "bg-working", icon: LoaderCircle },
   needs_you: { label: "Needs you", color: "text-needs", bg: "bg-needs", icon: Hand },
-  done: { label: "Done", color: "text-done", bg: "bg-done", icon: CheckCircle2 },
   failed: { label: "Failed", color: "text-failed", bg: "bg-failed", icon: AlertTriangle },
   idle: { label: "Idle", color: "text-idle", bg: "bg-idle", icon: CircleDashed },
 };

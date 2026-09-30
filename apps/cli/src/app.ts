@@ -80,9 +80,26 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
     : undefined;
 
   sessions.onAnnouncement((announcement) => {
+    if (announcement.kind === "finished" && foreman && announcement.result) {
+      // Report back on the work instead of pasting the agent's reply.
+      const session = sessions.get(announcement.sessionId);
+      void foreman
+        .followUp({
+          sessionId: announcement.sessionId,
+          title: session?.title ?? "A session",
+          result: announcement.result,
+          source: voice?.isLive ? "voice" : "text",
+        })
+        .then((reply) => voice?.announce(reply.text))
+        .catch((error) =>
+          log(`[foreman] follow-up failed: ${error instanceof Error ? error.message : error}`),
+        );
+      return;
+    }
+    // A start already shows as a step in the reply that caused it.
+    if (announcement.kind === "started") return;
     foreman?.notice(announcement.text, announcement.sessionId);
-    // The foreman already says when it starts something; only speak what happens later.
-    if (announcement.kind !== "started") voice?.announce(announcement.text);
+    voice?.announce(announcement.text);
   });
 
   const health = new Map<AgentKind, { ok: boolean; detail?: string }>();

@@ -19,6 +19,11 @@ export interface ForemanRequest {
   source: Exclude<MessageSource, "system">;
   /** Called with short labels while the foreman works, e.g. for voice progress. */
   onProgress?: (label: string) => void;
+  /**
+   * Set when Mimir itself starts the turn (e.g. a session finished). `text` is then
+   * shown as a notice about `sessionId` and `context` goes to the model only.
+   */
+  internal?: { sessionId: string; context: string };
 }
 
 export interface ForemanDeps {
@@ -44,6 +49,7 @@ You can see the user's recent sessions in every agent, including ones they start
 How you work:
 - New session instructions must be self-contained: the agent cannot see this conversation. Include the goal, context, constraints and what "done" means.
 - Follow-ups on existing work go to that session with message_session, so the agent keeps its context.
+- When you send a session work, say in one short sentence what you asked it to do. You will automatically get its reply when it finishes and then report back; do not promise to "check" or "keep an eye on it" beyond that.
 - Sessions the user touched in the last few minutes outside Mimir may be open on their screen. message_session will say so; then ask the user before sending.
 - For progress questions, check with session_status or session_changes instead of guessing. Your earlier replies note which sessions you already checked: reuse that for follow-up questions, and only check again if the session is running, the user asks for an update, or it has been a while.
 - Never claim something is done, merged, pushed or fixed unless a tool result says so.
@@ -78,7 +84,8 @@ function withStepNotes(message: ChatMessage, sessions: SessionManager): string {
 type BeginStep = (
   label: string,
   sessionId?: string,
-  detail?: string,
+  /** What is being sent to the session, shown to the user in full. */
+  message?: string,
 ) => { done: (note?: string, sessionId?: string) => void; fail: (error: unknown) => void };
 
 export class Foreman {
@@ -91,6 +98,28 @@ export class Foreman {
     const run = this.queue.then(() => this.run(request));
     this.queue = run.catch(() => undefined);
     return run;
+  }
+
+  /**
+   * A session Mimir gave work to has finished: read its reply and tell the user what
+   * it means for what they asked, instead of pasting the agent's raw output.
+   */
+  followUp(input: {
+    sessionId: string;
+    title: string;
+    result: string;
+    source: ForemanRequest["source"];
+  }): Promise<ChatMessage> {
+    const context = `[Mimir internal, not from the user] The session "${input.title}" (${input.sessionId}) just finished the work you gave it. Its final reply:
+"""
+${input.result.slice(0, 8000)}
+"""
+Tell the user what this means for what they asked, in your own words. Lead with the answer. Mention anything they need to do. Do not call tools unless something in the reply clearly needs checking. If nothing in it matters to the user, reply with one short sentence saying it finished.`;
+    return this.handle({
+      text: `"${input.title}" finished.`,
+      source: input.source,
+      internal: { sessionId: input.sessionId, context },
+    });
   }
 
   /** Record something that happened without asking the model, e.g. a session finishing. */
@@ -364,15 +393,18 @@ export class Foreman {
 
   private async run(request: ForemanRequest): Promise<ChatMessage> {
     const { store, bus } = this.deps;
-    const userMessage: ChatMessage = {
-      id: newId("msg"),
-      role: "user",
-      source: request.source,
-      text: request.text,
-      createdAt: Date.now(),
-    };
-    store.saveMessage(userMessage);
-    bus.publish({ type: "message.upsert", message: userMessage });
+    const opening: ChatMessage = request.internal
+      ? {
+          id: newId("msg"),
+          role: "notice",
+          source: "system",
+          text: request.text,
+          sessionId: request.internal.sessionId,
+          createdAt: Date.now(),
+        }
+      : { id: newId("msg"), role: "user", source: request.source, text: request.text, createdAt: Date.now() };
+    store.saveMessage(opening);
+    bus.publish({ type: "message.upsert", message: opening });
 
     const reply: ChatMessage = {
       id: newId("msg"),
@@ -392,14 +424,8 @@ export class Foreman {
         message: { ...reply, steps: reply.steps?.map((step) => ({ ...step })) },
       });
 
-    const begin: BeginStep = (label, sessionId, detail) => {
-      const step: ForemanStep = {
-        id: newId("stp"),
-        label,
-        sessionId,
-        state: "running",
-        detail: detail?.slice(0, 2000),
-      };
+    const begin: BeginStep = (label, sessionId, message) => {
+      const step: ForemanStep = { id: newId("stp"), label, sessionId, state: "running", message };
       reply.steps = [...(reply.steps ?? []), step];
       if (sessionId) this.deps.sessions.focus(sessionId);
       publishReply();
@@ -436,7 +462,9 @@ export class Foreman {
           `Current state:\n${this.stateSummary()}`,
           request.source === "voice" ? VOICE_NOTE : TEXT_NOTE,
         ].join("\n\n"),
-        messages: this.history(),
+        messages: request.internal
+          ? [...this.history(), { role: "user", content: request.internal.context }]
+          : this.history(),
         tools: this.tools(request.source, begin),
         stopWhen: stepCountIs(8),
         onError: ({ error }) => {

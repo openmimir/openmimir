@@ -14,7 +14,9 @@ export interface ForemanStep {
   /** The session this step read or changed, if any. */
   sessionId?: string;
   state: "running" | "done" | "error";
-  /** Extra detail, e.g. the message sent to a session or an error. */
+  /** What Mimir sent to the session, shown in full so nothing happens behind the user's back. */
+  message?: string;
+  /** Extra detail, e.g. how many results or an error. */
   detail?: string;
 }
 
@@ -40,7 +42,11 @@ export const AGENT_LABELS: Record<AgentKind, string> = {
   codex: "Codex",
 };
 
-export type SessionStatus = "working" | "needs_you" | "done" | "failed" | "idle";
+/**
+ * `idle` means not running: its last turn is over, whoever started it. What a
+ * finished turn produced is reported in the conversation, not as a status.
+ */
+export type SessionStatus = "working" | "needs_you" | "failed" | "idle";
 
 /**
  * One coding-agent session. Mimir tracks sessions it started, sessions the

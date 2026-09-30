@@ -11,6 +11,7 @@ class FakeAdapter implements AgentAdapter {
   readonly supportsApprovals = true;
   recent: SessionSummary[] = [];
   prompts: string[] = [];
+  lastText: string | undefined;
   private listeners = new Set<(event: Parameters<Parameters<AgentAdapter["onEvent"]>[0]>[0]) => void>();
 
   async start() {}
@@ -31,7 +32,7 @@ class FakeAdapter implements AgentAdapter {
   }
   async interrupt() {}
   async lastAssistantText() {
-    return undefined;
+    return this.lastText;
   }
   async diff(): Promise<FileChange[]> {
     return [];
@@ -87,7 +88,7 @@ describe("SessionManager", () => {
     expect(manager.get("opencode:a")?.focusedAt).toBeDefined();
   });
 
-  test("a session Mimir started keeps its outcome instead of the agent's guess", async () => {
+  test("a session Mimir started reports its full result when it finishes", async () => {
     const { adapter, manager, spoken, status } = setup();
     const session = await manager.start({
       agent: "opencode",
@@ -96,13 +97,23 @@ describe("SessionManager", () => {
       instructions: "fix",
     });
     expect(session.id).toBe("opencode:new");
+    adapter.lastText = "All tests pass. Changed three files.";
     adapter.emit({ type: "succeeded", externalId: "new" });
-    expect(status("opencode:new")).toBe("done");
-    expect(spoken.map((a) => a.kind)).toEqual(["started", "done"]);
+    expect(status("opencode:new")).toBe("idle");
+    await Bun.sleep(0);
+    expect(spoken.map((a) => a.kind)).toEqual(["started", "finished"]);
+    expect(spoken[1]?.result).toBe("All tests pass. Changed three files.");
+  });
 
-    adapter.recent = [summary("new", { running: false })];
+  test("a status change is not undone by the next refresh", async () => {
+    const { adapter, manager, status } = setup();
+    await manager.start({ agent: "opencode", directory: "/repo", title: "Fix it", instructions: "fix" });
+    adapter.recent = [summary("new", { running: true })];
     await manager.refresh(true);
-    expect(status("opencode:new")).toBe("done");
+    expect(status("opencode:new")).toBe("working");
+    adapter.recent = [summary("new", { running: false })];
+    adapter.emit({ type: "succeeded", externalId: "new" });
+    expect(status("opencode:new")).toBe("idle");
   });
 
   test("a tracked session the user resumes elsewhere shows as working, then idle once quiet", async () => {
@@ -132,7 +143,8 @@ describe("SessionManager", () => {
 
     await manager.message("opencode:theirs", "carry on");
     adapter.emit({ type: "succeeded", externalId: "theirs" });
-    expect(spoken.map((a) => a.kind)).toEqual(["done"]);
+    await Bun.sleep(0);
+    expect(spoken.map((a) => a.kind)).toEqual(["finished"]);
   });
 
   test("sessions that fell off the agent's recent list are still listed", async () => {

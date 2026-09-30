@@ -138,12 +138,12 @@ export class Store {
     const rows = this.db
       .query("SELECT doc FROM sessions ORDER BY updated_at DESC LIMIT ?")
       .all(limit) as Array<{ doc: string }>;
-    return rows.map((row) => JSON.parse(row.doc) as AgentSession);
+    return rows.map((row) => readSession(row.doc));
   }
 
   session(id: string): AgentSession | undefined {
     const row = this.db.query("SELECT doc FROM sessions WHERE id = ?").get(id) as { doc: string } | null;
-    return row ? (JSON.parse(row.doc) as AgentSession) : undefined;
+    return row ? readSession(row.doc) : undefined;
   }
 
   saveApproval(approval: Approval) {
@@ -167,4 +167,10 @@ export class Store {
   close() {
     this.db.close();
   }
+}
+
+/** Older versions stored a separate "done" status; it now means the same as idle. */
+function readSession(doc: string): AgentSession {
+  const session = JSON.parse(doc) as Omit<AgentSession, "status"> & { status: string };
+  return { ...session, status: session.status === "done" ? "idle" : session.status } as AgentSession;
 }

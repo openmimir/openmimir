@@ -941,7 +941,9 @@ footer a:hover {
   *,
   *::before,
   *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion has to override every animation */
     animation: none !important;
+    /* biome-ignore lint/complexity/noImportantStyles: same */
     transition: none !important;
   }
   .reveal,

@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>OpenMimir demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #07090a;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #07090a;
+        color: #eef3f4;
+        font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .clip {
+        position: absolute;
+        inset: 0;
+      }
+      .fill {
+        position: absolute;
+        inset: 0;
+      }
+
+      /* ---------- shared backdrop (title + end) ---------- */
+      .glow {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(900px 560px at 72% 8%, rgb(54 226 196 / 0.16), transparent 62%),
+          radial-gradient(700px 520px at 6% 100%, rgb(217 119 87 / 0.1), transparent 60%),
+          #07090a;
+      }
+      .grid {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+        background-size: 64px 64px;
+        -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, #000 25%, transparent 75%);
+        mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, #000 25%, transparent 75%);
+      }
+      .center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      .well {
+        position: relative;
+        width: 150px;
+        height: 150px;
+        display: grid;
+        place-items: center;
+      }
+      .well .ring {
+        position: absolute;
+        inset: 0;
+        border: 3px solid #36e2c4;
+        border-radius: 50%;
+        opacity: 0;
+      }
+      .well .core {
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        background: #36e2c4;
+        box-shadow: 0 0 56px #36e2c4;
+      }
+      .headline {
+        margin-top: 44px;
+        font-size: 96px;
+        line-height: 1.02;
+        font-weight: 750;
+        letter-spacing: -0.045em;
+        color: #f1f5f6;
+      }
+      .headline .line {
+        display: block;
+      }
+      .accent {
+        color: #36e2c4;
+      }
+      .chips {
+        margin-top: 44px;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+      }
+      .chip {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 24px 12px 16px;
+        border-radius: 999px;
+        border: 1px solid #2a353a;
+        background: rgb(255 255 255 / 0.03);
+        color: #dfe6e8;
+        font-size: 28px;
+        font-weight: 550;
+      }
+      .chip img {
+        width: 30px;
+        height: 30px;
+      }
+      .chip-claude {
+        color: #fff;
+        font-weight: 650;
+        font-size: 32px;
+        padding: 14px 28px 14px 18px;
+        border-color: rgb(217 119 87 / 0.55);
+        background: rgb(217 119 87 / 0.14);
+        box-shadow: 0 0 44px -8px rgb(217 119 87 / 0.7);
+      }
+      .chip-claude img {
+        width: 36px;
+        height: 36px;
+      }
+
+      /* ---------- app scene ---------- */
+      #cam {
+        position: absolute;
+        inset: 0;
+        transform-origin: 50% 46%;
+      }
+      .screen {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        opacity: 0;
+      }
+      #screen-0 {
+        opacity: 1;
+      }
+      /* Voice-on header, drawn exactly like the app's trainer header. */
+      #hdr {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 127px;
+        background: #07090a;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 24px;
+      }
+      .orb {
+        position: relative;
+        width: 88px;
+        height: 88px;
+        flex-shrink: 0;
+        display: grid;
+        place-items: center;
+      }
+      .orb .ring {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 2px solid #36e2c4;
+        opacity: 0;
+      }
+      .orb .halo {
+        position: absolute;
+        width: 70px;
+        height: 70px;
+        border-radius: 50%;
+        background: #36e2c4;
+        opacity: 0.15;
+        filter: blur(12px);
+      }
+      .orb .core {
+        position: relative;
+        width: 37px;
+        height: 37px;
+        border-radius: 50%;
+        background: #36e2c4;
+        box-shadow: 0 0 26px #36e2c4;
+      }
+      .hdr-text {
+        flex: 1;
+        min-width: 0;
+      }
+      .labels {
+        position: relative;
+        height: 36px;
+      }
+      .labels span {
+        position: absolute;
+        left: 0;
+        top: 0;
+        font-size: 30px;
+        line-height: 36px;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        opacity: 0;
+      }
+      .sub {
+        position: relative;
+        height: 28px;
+        font-size: 18px;
+        line-height: 28px;
+        color: #8a979c;
+      }
+      .sub .t {
+        position: absolute;
+        left: 0;
+        top: 0;
+        opacity: 0;
+      }
+      .sub .run {
+        position: absolute;
+        left: 52px;
+        top: 0;
+        font-weight: 600;
+        color: #ffb020;
+        opacity: 0;
+      }
+      .hbtn {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        border: 1px solid #232b2f;
+        display: grid;
+        place-items: center;
+        color: #c9d3d6;
+        flex-shrink: 0;
+      }
+      .hbtn.dim {
+        color: #8a979c;
+      }
+      .hbtn svg {
+        width: 28px;
+        height: 28px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      /* Live captions, drawn like the app's LiveCaptions in the trainer footer. */
+      #caps {
+        position: absolute;
+        left: 25px;
+        top: 945px;
+        width: 1870px;
+        height: 110px;
+        background: #0d1113;
+        border-radius: 15px;
+        padding: 20px;
+      }
+      .cap {
+        position: absolute;
+        left: 20px;
+        font-size: 20px;
+        line-height: 28px;
+        white-space: nowrap;
+        opacity: 0;
+      }
+      .cap.top {
+        top: 20px;
+      }
+      .cap.bottom {
+        top: 50px;
+      }
+      .cap .lbl {
+        position: relative;
+        display: inline-block;
+        margin-right: 8px;
+        font-weight: 600;
+      }
+      .cap .lbl span {
+        position: absolute;
+        left: 0;
+        top: 0;
+      }
+      .cap .lbl .sizer {
+        position: static;
+        visibility: hidden;
+      }
+      .cap .w {
+        display: none;
+      }
+      .cap .cursor {
+        opacity: 0;
+        margin-left: 2px;
+      }
+      .user .lbl {
+        color: #737e83;
+      }
+      .user .w {
+        color: #eef3f4;
+      }
+      .mimir .lbl {
+        color: #2f897a;
+      }
+      .mimir .w {
+        color: #36e2c4;
+      }
+      #ring-finished {
+        position: absolute;
+        left: 45px;
+        top: 786px;
+        width: 1830px;
+        height: 64px;
+        border-radius: 12px;
+        border: 2px solid #3ddc84;
+        box-shadow:
+          0 0 36px rgb(61 220 132 / 0.35),
+          inset 0 0 24px rgb(61 220 132 / 0.12);
+        opacity: 0;
+      }
+      #skip-dim {
+        position: absolute;
+        inset: 0;
+        background: rgb(4 6 7 / 0.72);
+        opacity: 0;
+      }
+      #skip-card {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+      }
+      .skip-inner {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        padding: 26px 40px;
+        border-radius: 24px;
+        border: 1px solid #2a353a;
+        background: rgb(13 17 19 / 0.92);
+        font-size: 44px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        color: #f1f5f6;
+      }
+      .skip-inner svg {
+        width: 46px;
+        height: 46px;
+        fill: none;
+        stroke: #36e2c4;
+        stroke-width: 2;
+        stroke-linecap: round;
+      }
+
+      /* ---------- end card ---------- */
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        font-size: 92px;
+        font-weight: 750;
+        letter-spacing: -0.04em;
+        color: #f1f5f6;
+      }
+      .brand img {
+        width: 104px;
+        height: 104px;
+      }
+      .end-line {
+        margin-top: 26px;
+        font-size: 40px;
+        color: #aeb9bd;
+        letter-spacing: -0.015em;
+      }
+      .install {
+        margin-top: 56px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 22px 34px;
+        border-radius: 20px;
+        border: 1px solid #2a353a;
+        background: #0d1113;
+        box-shadow: 0 0 0 6px rgb(54 226 196 / 0.05);
+        font-family: ui-monospace, monospace;
+        font-size: 34px;
+        color: #f1f5f6;
+      }
+      .install .p {
+        color: #36e2c4;
+      }
+      .meta {
+        margin-top: 44px;
+        font-size: 28px;
+        color: #8a979c;
+      }
+      .meta b {
+        color: #f1f5f6;
+        font-weight: 650;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="41"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- 1. Title -->
+      <section id="title" class="clip" data-start="0" data-duration="4.2" data-track-index="0">
+        <div id="title-inner" class="fill">
+          <div class="glow"></div>
+          <div class="grid"></div>
+          <div class="center">
+            <div class="well" id="title-well">
+              <span class="ring"></span><span class="ring"></span><span class="ring"></span>
+              <div class="core" id="title-core"></div>
+            </div>
+            <h1 class="headline">
+              <span class="line" id="h1a">Talk to all your</span>
+              <span class="line accent" id="h1b">coding agents.</span>
+            </h1>
+            <div class="chips">
+              <span class="chip chip-claude" id="chip1"><img src="assets/img/claude.svg" alt="" /> Claude Code</span>
+              <span class="chip" id="chip2"><img src="assets/img/codex.svg" alt="" /> Codex</span>
+              <span class="chip" id="chip3"><img src="assets/img/opencode.svg" alt="" /> OpenCode</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. The app in trainer mode -->
+      <section id="app" class="clip" data-start="3.6" data-duration="31.1" data-track-index="1">
+        <div id="app-inner" class="fill">
+          <div id="cam">
+            <img class="screen" id="screen-0" src="assets/img/trainer-0.png" alt="" />
+            <img class="screen" id="screen-1" src="assets/img/trainer-1.png" alt="" />
+            <img class="screen" id="screen-2" src="assets/img/trainer-2.png" alt="" />
+            <img class="screen" id="screen-3" src="assets/img/trainer-3.png" alt="" />
+            <img class="screen" id="screen-4" src="assets/img/trainer-4.png" alt="" />
+            <img class="screen" id="screen-5" src="assets/img/trainer-5.png" alt="" />
+            <img class="screen" id="screen-6" src="assets/img/trainer-6.png" alt="" />
+            <img class="screen" id="screen-7" src="assets/img/trainer-7.png" alt="" />
+            <div id="ring-finished"></div>
+
+            <header id="hdr">
+              <div class="orb" id="orb">
+                <span class="ring"></span><span class="ring"></span><span class="ring"></span>
+                <div class="halo" id="orb-halo"></div>
+                <div class="core" id="orb-core"></div>
+              </div>
+              <div class="hdr-text">
+                <div class="labels" id="labels">
+                  <span id="lab-listening">Listening</span>
+                  <span id="lab-user">Hearing you</span>
+                  <span id="lab-thinking">Working on it</span>
+                  <span id="lab-speaking">Speaking</span>
+                </div>
+                <div class="sub" id="timer"></div>
+              </div>
+              <div class="hbtn">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />
+                </svg>
+              </div>
+              <div class="hbtn dim">
+                <svg viewBox="0 0 24 24">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+              </div>
+            </header>
+
+            <div id="caps"></div>
+          </div>
+          <div id="skip-dim"></div>
+          <div id="skip-card">
+            <div class="skip-inner">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
+              A few minutes later
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. End card -->
+      <section id="end" class="clip" data-start="34.2" data-duration="6.8" data-track-index="2">
+        <div id="end-inner" class="fill">
+          <div class="glow"></div>
+          <div class="grid"></div>
+          <div class="center">
+            <div class="brand" id="end-brand"><img src="assets/img/mimir.svg" alt="" /> OpenMimir</div>
+            <p class="end-line" id="end-line">One voice for Claude Code, Codex and OpenCode.</p>
+            <div class="install" id="end-install">
+              <span class="p">$</span> curl -fsSL https://openmimir.com/install.sh | bash
+            </div>
+            <p class="meta" id="end-meta"><b>openmimir.com</b> · Free and open source · macOS</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Audio -->
+      <audio
+        id="bgm"
+        src="assets/audio/bgm.mp3"
+        data-start="0"
+        data-duration="41"
+        data-track-index="10"
+        data-volume="1"
+        data-automation='{"version":1,"lanes":[{"target":"volume","points":[{"t":0,"v":0},{"t":0.6,"v":0.5},{"t":3.8,"v":0.5},{"t":4.5,"v":0.12},{"t":33.8,"v":0.12},{"t":34.8,"v":0.5},{"t":41,"v":0.45}]}]}'
+      ></audio>
+      <audio id="v-u1" src="assets/voice/u1.wav" data-duration="2.00" data-start="4.4" data-track-index="11" data-volume="1"></audio>
+      <audio id="v-m1" src="assets/voice/m1.wav" data-duration="4.45" data-start="6.8" data-track-index="12" data-volume="1"></audio>
+      <audio id="v-u2" src="assets/voice/u2.wav" data-duration="3.70" data-start="11.7" data-track-index="11" data-volume="1"></audio>
+      <audio id="v-m2" src="assets/voice/m2.wav" data-duration="4.95" data-start="15.8" data-track-index="12" data-volume="1"></audio>
+      <audio id="v-u3" src="assets/voice/u3.wav" data-duration="1.65" data-start="20.9" data-track-index="11" data-volume="1"></audio>
+      <audio id="v-m3" src="assets/voice/m3.wav" data-duration="2.30" data-start="22.1" data-track-index="12" data-volume="1"></audio>
+      <audio id="sfx-chime" src="assets/audio/chime.mp3" data-duration="2.50" data-start="26.4" data-track-index="13" data-volume="0.5"></audio>
+      <audio id="v-m4" src="assets/voice/m4.wav" data-duration="7.20" data-start="26.9" data-track-index="12" data-volume="1"></audio>
+    </div>
+
+    <script>
+      const tl = gsap.timeline({ paused: true });
+
+      // ---------- Dialogue: global start, speech window inside the clip, text ----------
+      const lines = [
+        { who: "user", at: 4.4, a: 0.05, b: 1.68, pair: 0, text: "How's the billing refactor going?" },
+        { who: "mimir", at: 6.8, a: 0.05, b: 4.1, pair: 0, text: "Codex is on the last migration, 3 of 4. The tests are passing." },
+        { who: "user", at: 11.7, a: 0.05, b: 3.46, pair: 1, text: "Nice. Have Claude fix the flaky login test in web-app." },
+        { who: "mimir", at: 15.8, a: 0.31, b: 4.73, pair: 1, text: "I'll start Claude Code in web-app to fix the flaky login test. Go ahead?" },
+        { who: "user", at: 20.9, a: 0.46, b: 0.85, pair: 2, text: "Yes." },
+        { who: "mimir", at: 22.1, a: 0.05, b: 2.0, pair: 2, text: "On it. I'll tell you when it's done." },
+        { who: "mimir", at: 26.9, a: 0.05, b: 6.73, pair: 3, text: "Claude fixed it. The test was racing the session cookie; it now waits for it, and passed 50 runs in a row." },
+      ];
+      const pairEnds = [11.7, 20.9, 24.6, 34.7];
+
+      // ---------- Title ----------
+      tl.fromTo("#title-well", { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.8, ease: "power3.out" }, 0.1);
+      document.querySelectorAll("#title-well .ring").forEach((ring, i) => {
+        tl.fromTo(ring, { scale: 0.4, opacity: 0.8 }, { scale: 1.7, opacity: 0, duration: 2.4, ease: "power1.out", repeat: 1 }, 0.2 + i * 0.8);
+      });
+      tl.fromTo("#h1a", { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 0.35);
+      tl.fromTo("#h1b", { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 0.55);
+      tl.fromTo("#chip1", { y: 24, opacity: 0, scale: 0.94 }, { y: 0, opacity: 1, scale: 1, duration: 0.55, ease: "back.out(1.6)" }, 1.1);
+      tl.fromTo("#chip2", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 1.3);
+      tl.fromTo("#chip3", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 1.45);
+      tl.to("#title-inner", { opacity: 0, scale: 1.04, duration: 0.6, ease: "power2.in" }, 3.6);
+
+      // ---------- App: entrance, camera, screens ----------
+      tl.fromTo("#app-inner", { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.7, ease: "power3.out" }, 3.6);
+      // The app's background matches the canvas, so pushing in from slightly small never crops the UI.
+      tl.fromTo("#cam", { scale: 0.965 }, { scale: 1, duration: 30.6, ease: "none" }, 4.0);
+      const screens = [
+        [1, 6.2],
+        [2, 6.8],
+        [3, 15.3],
+        [4, 15.8],
+        [5, 21.9],
+        [6, 22.1],
+        [7, 26.4],
+      ];
+      for (const [n, at] of screens) tl.to(`#screen-${n}`, { opacity: 1, duration: 0.35, ease: "power1.out" }, at);
+      tl.to("#app-inner", { opacity: 0, duration: 0.5, ease: "power2.in" }, 34.2);
+
+      // Orb ripples keep moving while voice is live.
+      document.querySelectorAll("#orb .ring").forEach((ring, i) => {
+        tl.fromTo(ring, { scale: 0.4, opacity: 0.8 }, { scale: 1.6, opacity: 0, duration: 2.4, ease: "power1.out", repeat: 12 }, 3.6 + i * 0.8);
+      });
+
+      // Header state: label + orb colour.
+      const states = [
+        [3.6, "listening"], [4.4, "user"], [6.2, "thinking"], [6.8, "speaking"], [11.3, "listening"],
+        [11.7, "user"], [15.25, "thinking"], [15.8, "speaking"], [20.8, "listening"], [21.3, "user"],
+        [21.85, "thinking"], [22.1, "speaking"], [24.4, "listening"], [26.9, "speaking"], [33.7, "listening"],
+      ];
+      const colors = { listening: "#36e2c4", user: "#7af0da", thinking: "#ffb020", speaking: "#36e2c4" };
+      const ids = ["listening", "user", "thinking", "speaking"];
+      for (const [at, state] of states) {
+        for (const id of ids) tl.set(`#lab-${id}`, { opacity: id === state ? 1 : 0 }, at);
+        tl.to(["#orb-core", "#orb-halo"], { backgroundColor: colors[state], duration: 0.25 }, at);
+        tl.to("#orb-core", { boxShadow: `0 0 26px ${colors[state]}`, duration: 0.25 }, at);
+        tl.to("#orb .ring", { borderColor: colors[state], duration: 0.25 }, at);
+      }
+      // The core swells with the voice level while someone speaks.
+      for (const l of lines) {
+        const start = l.at + l.a;
+        const len = l.b - l.a;
+        const beats = Math.max(1, Math.floor(len / 0.36));
+        for (let i = 0; i < beats; i++) {
+          const amp = 1.12 + 0.18 * Math.abs(Math.sin((i + 1) * 1.7 + l.at));
+          tl.to("#orb-core", { scale: amp, duration: 0.18, ease: "sine.out" }, start + i * 0.36);
+          tl.to("#orb-core", { scale: 1, duration: 0.18, ease: "sine.in" }, start + i * 0.36 + 0.18);
+        }
+        tl.to("#orb-halo", { opacity: 0.45, duration: 0.2 }, start);
+        tl.to("#orb-halo", { opacity: 0.15, duration: 0.3 }, l.at + l.b);
+      }
+
+      // Voice timer and running count, like the app's header subline.
+      const timer = document.getElementById("timer");
+      const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      for (let s = 0; s <= 31; s++) {
+        const span = document.createElement("span");
+        span.className = "t";
+        span.textContent = fmt(s + 14);
+        timer.appendChild(span);
+        tl.set(span, { opacity: 1 }, 3.6 + s);
+        if (s < 31) tl.set(span, { opacity: 0 }, 3.6 + s + 1);
+      }
+      const run = (text, from, to) => {
+        const span = document.createElement("span");
+        span.className = "run";
+        span.textContent = text;
+        timer.appendChild(span);
+        tl.set(span, { opacity: 1 }, from);
+        tl.set(span, { opacity: 0 }, to);
+      };
+      run("1 session running", 3.6, 22.1);
+      run("2 sessions running", 22.1, 26.4);
+      run("1 session running", 26.4, 34.7);
+
+      // ---------- Live captions ----------
+      const caps = document.getElementById("caps");
+      for (const l of lines) {
+        const el = document.createElement("div");
+        const alone = l.pair === 3;
+        el.className = `cap ${l.who} ${l.who === "user" || alone ? "top" : "bottom"}`;
+        const labels = l.who === "user" ? ["Hearing", "Heard"] : ["Mimir", "Mimir"];
+        el.innerHTML = `<span class="lbl"><span class="sizer">${labels[0]}</span><span class="l0">${labels[0]}</span><span class="l1" style="opacity:0">${labels[1]}</span></span>`;
+        const words = l.text.split(" ");
+        const total = words.reduce((n, w) => n + w.length + 1, 0);
+        let acc = 0;
+        words.forEach((word, i) => {
+          const w = document.createElement("span");
+          w.className = "w";
+          w.textContent = (i ? " " : "") + word;
+          el.appendChild(w);
+          tl.set(w, { display: "inline" }, l.at + l.a + (acc / total) * (l.b - l.a));
+          acc += word.length + 1;
+        });
+        const cursor = document.createElement("span");
+        cursor.className = "cursor";
+        cursor.textContent = "▍";
+        el.appendChild(cursor);
+        caps.appendChild(el);
+        const final = l.at + l.b + 0.15;
+        tl.set(el, { opacity: 1 }, l.at + l.a);
+        tl.set(cursor, { opacity: 1 }, l.at + l.a);
+        tl.set(cursor, { opacity: 0 }, final);
+        tl.set(el.querySelector(".l0"), { opacity: l.who === "user" ? 0 : 1 }, final);
+        tl.set(el.querySelector(".l1"), { opacity: l.who === "user" ? 1 : 0 }, final);
+        tl.to(el.querySelectorAll(".w"), { color: l.who === "user" ? "#8a979c" : "#c9d3d6", duration: 0.3 }, final);
+        tl.set(el, { opacity: 0 }, pairEnds[l.pair]);
+      }
+
+      // ---------- A few minutes later ----------
+      tl.to("#skip-dim", { opacity: 1, duration: 0.4 }, 24.6);
+      tl.fromTo("#skip-card", { opacity: 0, scale: 0.94 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.5)" }, 24.75);
+      tl.to("#skip-card", { opacity: 0, duration: 0.35 }, 26.05);
+      tl.to("#skip-dim", { opacity: 0, duration: 0.4 }, 26.1);
+
+      // The finished notice gets a moment of attention.
+      tl.fromTo("#ring-finished", { opacity: 0, scale: 1.02 }, { opacity: 1, scale: 1, duration: 0.4, ease: "power2.out" }, 26.5);
+      tl.to("#ring-finished", { opacity: 0, duration: 0.8 }, 29.6);
+
+      // ---------- End card ----------
+      tl.fromTo("#end-inner", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 34.2);
+      tl.fromTo("#end-brand", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 34.5);
+      tl.fromTo("#end-line", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 34.8);
+      tl.fromTo("#end-install", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 35.3);
+      tl.fromTo("#end-meta", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 35.9);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

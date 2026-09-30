@@ -575,6 +575,24 @@ h3 {
   box-shadow: 0 0 16px var(--accent);
 }
 
+/* Demo video */
+.video {
+  padding: 8px 0 88px;
+  text-align: center;
+}
+
+.video video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 20px;
+  border: 1px solid var(--line-2);
+  background: #000;
+  box-shadow:
+    0 40px 80px -30px rgb(0 0 0 / 0.9),
+    0 0 80px -30px rgb(54 226 196 / 0.3);
+}
+
 /* Agents */
 .agents {
   padding: 40px 0 72px;
@@ -908,6 +926,16 @@ footer a:hover {
   color: var(--accent);
   text-decoration-color: rgb(54 226 196 / 0.4);
   text-underline-offset: 3px;
+}
+
+.prose video {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 0 32px;
+  border-radius: 16px;
+  border: 1px solid var(--line-2);
+  background: #000;
 }
 
 .prose table {

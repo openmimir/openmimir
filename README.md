@@ -2,12 +2,14 @@
 
 **One chat that runs all your coding agents. Type to it, or talk to it hands-free.**
 
-Mimir is one conversation in front of all your coding agents: OpenCode, Claude Code and Codex. It
+[![Watch the 40-second demo (sound on)](https://openmimir.com/demo-poster.jpg)](https://openmimir.com/demo.mp4)
+
+Mimir is one conversation in front of all your coding agents: Claude Code, Codex and OpenCode. It
 already sees the sessions you started at your desk, so "how's the billing refactor going?" or
 "carry on with that" just works, and new requests start new sessions without you picking an agent. Add full-duplex voice and you can run it all from an indoor bike, a treadmill or a walk: it
 listens while it talks, you can interrupt it, and it tells you when a session finishes or needs you.
 
-> Status: early (v0.1). Works on macOS at a desk and on the indoor trainer. Phone calls and
+> Status: early (v0.2). Works on macOS at a desk and on the indoor trainer. Phone calls and
 > outdoor/running mode are next. See the [roadmap](#roadmap).
 
 ## How it works

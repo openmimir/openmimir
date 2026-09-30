@@ -1,0 +1,29 @@
+WEBVTT
+
+00:00:04.400 --> 00:00:06.200
+<v User>How's the billing refactor going?
+
+00:00:06.800 --> 00:00:11.300
+<v Mimir>Codex is on the last migration, 3 of 4. The tests are passing.
+
+00:00:11.700 --> 00:00:15.300
+<v User>Nice. Have Claude fix the flaky login test in web-app.
+
+00:00:15.800 --> 00:00:20.800
+<v Mimir>I'll start Claude Code in web-app to fix the flaky login test. Go ahead?
+
+00:00:21.300 --> 00:00:21.900
+<v User>Yes.
+
+00:00:22.100 --> 00:00:24.400
+<v Mimir>On it. I'll tell you when it's done.
+
+00:00:24.700 --> 00:00:26.300
+[A few minutes later]
+
+00:00:26.900 --> 00:00:29.900
+<v Mimir>Claude fixed it. The test was racing the session cookie;
+
+00:00:29.900 --> 00:00:33.800
+it now waits for it, and passed 50 runs in a row.
+

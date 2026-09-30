@@ -1,0 +1,5 @@
+renders/
+snapshots/
+.media/
+capture/
+node_modules/

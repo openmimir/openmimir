@@ -30,6 +30,11 @@ export const pages: Page[] = [
     lead: "Claude Code's built-in voice turns speech into a prompt. OpenMimir goes one step further: a spoken conversation that starts work, follows it, and tells you out loud what happened.",
     summary: "Built-in /voice dictation vs a full spoken conversation with your sessions.",
     body: `
+          <video controls playsinline preload="none" poster="/demo-poster.jpg" width="1920" height="1080">
+            <source src="/demo.mp4" type="video/mp4" />
+          <track kind="captions" src="/demo.vtt" srclang="en" label="English" />
+          </video>
+
           <h2>What Claude Code's built-in voice does</h2>
           <p>Claude Code has <a href="${CLAUDE_VOICE_DOCS}">voice dictation</a>: run <code>/voice</code>, then hold or tap
           Space and speak. Your words are transcribed into the prompt, tuned for coding terms. It is great at your desk. It

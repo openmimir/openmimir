@@ -1,0 +1,28 @@
+{
+  "name": "openmimir-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "packageManager": "bun@1.3.10",
+  "scripts": {
+    "dev": "bun run --filter '@openmimir/web' build && bun run apps/cli/src/index.ts serve",
+    "dev:web": "bun run --filter '@openmimir/web' dev",
+    "dev:server": "bun --watch apps/cli/src/index.ts serve",
+    "build": "bun run --filter '@openmimir/web' build && bun run --filter 'openmimir' build",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p apps/web",
+    "test": "bun test",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "changeset": "changeset",
+    "version-packages": "changeset version"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@changesets/cli": "^3.0.3",
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}

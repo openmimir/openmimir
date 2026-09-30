@@ -50,6 +50,7 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
         model: config.voice.model,
         voice: config.voice.voice,
         log,
+        vocabulary: () => projects.list().map((p) => p.name),
         onState: (state) => bus.publish({ type: "voice.state", voice: state }),
         onCaption: (caption) => {
           bus.publish({ type: "caption", caption });

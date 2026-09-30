@@ -41,7 +41,7 @@ bunx openmimir init    # API keys, foreman model, where your repos live
 bunx openmimir         # starts the server
 ```
 
-Open <http://localhost:4747>, then type a request or press **Ctrl+Space** to talk:
+Open <http://localhost:4747>, then type a request or press **⌘⇧Space** to talk:
 
 > "Start a worker in openmimir that adds a section about setup to the README."
 

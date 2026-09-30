@@ -8,6 +8,10 @@ const TURN_GAP_MS = 1200;
 const QUIET_BEFORE_ANNOUNCE_MS = 1500;
 /** Roughly 450 tokens; each append is limited to 500. */
 const MAX_APPEND_CHARS = 1800;
+/** Reflected microphone audio kept for fallback transcription. */
+const AUDIO_BUFFER_MS = 30_000;
+/** How far back fallback transcription looks for the request. */
+const FALLBACK_WINDOW_MS = 15_000;
 
 export interface HistoryItem {
   role: "user" | "assistant";
@@ -22,6 +26,8 @@ export interface LiveVoiceOptions {
   onDelegation: (utterance: string, progress: (label: string) => void) => Promise<string>;
   onState: (state: VoiceState) => void;
   onCaption: (caption: Caption) => void;
+  /** Names worth biasing transcription towards, e.g. project names. */
+  vocabulary?: () => string[];
   log?: (message: string) => void;
 }
 
@@ -51,6 +57,9 @@ export class LiveVoice {
   private activeDelegations = 0;
   private closing: { resolve: () => void } | undefined;
   private eventCounter = 0;
+  private eventCounts = new Map<string, number>();
+  private inputAudio: Array<{ at: number; pcm: Buffer }> = [];
+  private lastDelegationAt = 0;
 
   constructor(private readonly options: LiveVoiceOptions) {}
 
@@ -74,6 +83,9 @@ export class LiveVoice {
   /** Create a WebRTC session from the browser's SDP offer and return the SDP answer. */
   async create(input: { sdp: string; history: HistoryItem[] }): Promise<{ sessionId: string; sdp: string }> {
     if (this.socket) await this.close();
+    this.eventCounts = new Map();
+    this.inputAudio = [];
+    this.lastDelegationAt = Date.now();
     this.setState({ status: "connecting", error: undefined, sessionId: undefined, seconds: 0 });
     const input_ = input.history
       .filter((item) => item.text.trim())
@@ -150,7 +162,14 @@ export class LiveVoice {
   }
 
   private handle(event: LiveEvent) {
+    this.eventCounts.set(event.type, (this.eventCounts.get(event.type) ?? 0) + 1);
+    if (process.env.MIMIR_DEBUG && !event.type.includes("audio")) {
+      this.log(`event ${JSON.stringify(event).slice(0, 400)}`);
+    }
     switch (event.type) {
+      case "session.input_audio.append":
+        if (typeof event.audio === "string") this.bufferInput(event.audio);
+        break;
       case "session.input_transcript.delta":
         this.onTranscript("user", String(event.delta ?? ""));
         break;
@@ -169,6 +188,7 @@ export class LiveVoice {
       }
       case "session.closed":
         this.log(`session closed (${String(event.reason ?? "unknown")})`);
+        this.log(`events seen: ${JSON.stringify(Object.fromEntries(this.eventCounts))}`);
         this.closing?.resolve();
         this.teardown();
         break;
@@ -241,15 +261,30 @@ export class LiveVoice {
   private async delegate(delegationId: string) {
     this.activeDelegations++;
     this.setState({ thinking: true });
+    const requestedAt = Date.now();
     try {
       // Transcripts can trail the delegation event slightly.
       let utterance = "";
-      for (let waited = 0; waited <= 1500 && !utterance; waited += 250) {
+      for (let waited = 0; waited <= 1750 && !utterance; waited += 250) {
         await Bun.sleep(waited === 0 ? 350 : 250);
         utterance = this.takeUtterance();
       }
       if (!utterance) {
-        utterance = "(The voice model asked for help but the transcript was empty. Ask what they need.)";
+        // Live transcription sometimes stays silent; transcribe the mic audio ourselves.
+        this.log(`delegation ${delegationId}: no live transcript, transcribing recent audio`);
+        utterance = await this.transcribeRecent(requestedAt).catch((error) => {
+          this.log(`fallback transcription failed: ${error instanceof Error ? error.message : error}`);
+          return "";
+        });
+      }
+      this.lastDelegationAt = requestedAt;
+      if (!utterance) {
+        this.send({
+          type: "session.commentary.append",
+          delegation_id: delegationId,
+          content: "I could not make out the request. Ask the user to repeat it.",
+        });
+        return;
       }
       this.log(`delegation ${delegationId}: ${utterance}`);
       const progress = (label: string) => {
@@ -278,6 +313,40 @@ export class LiveVoice {
   announce(text: string) {
     if (!this.isLive) return;
     this.announcements.push(text);
+  }
+
+  private bufferInput(base64: string) {
+    const now = Date.now();
+    this.inputAudio.push({ at: now, pcm: Buffer.from(base64, "base64") });
+    while (this.inputAudio.length > 0 && now - (this.inputAudio[0]?.at ?? now) > AUDIO_BUFFER_MS) {
+      this.inputAudio.shift();
+    }
+  }
+
+  /** Transcribe what the user said just before `until`, since the previous delegation. */
+  private async transcribeRecent(until: number): Promise<string> {
+    const from = Math.max(this.lastDelegationAt, until - FALLBACK_WINDOW_MS);
+    const pcm = Buffer.concat(this.inputAudio.filter((c) => c.at >= from && c.at <= until).map((c) => c.pcm));
+    // 24 kHz, 16-bit mono: 48 bytes per millisecond. Skip under half a second or near silence.
+    if (pcm.length < 48 * 500 || rms(pcm) < 0.004) return "";
+    const form = new FormData();
+    form.set("model", "gpt-4o-transcribe");
+    form.set("file", new Blob([wav(pcm, 24_000)], { type: "audio/wav" }), "speech.wav");
+    const vocabulary = this.options.vocabulary?.() ?? [];
+    if (vocabulary.length > 0) {
+      form.set(
+        "prompt",
+        `A developer talking to their coding assistant. Project names: ${vocabulary.join(", ")}.`,
+      );
+    }
+    const response = await fetch(`${API}/audio/transcriptions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.options.apiKey}` },
+      body: form,
+    });
+    if (!response.ok) throw new Error(`${response.status} ${(await response.text()).slice(0, 200)}`);
+    const result = (await response.json()) as { text?: string };
+    return result.text?.trim() ?? "";
   }
 
   /** Quiet context the voice model can use when asked, without speaking it now. */
@@ -310,6 +379,7 @@ export class LiveVoice {
     this.sessionId = undefined;
     this.unconsumedUser = [];
     this.announcements = [];
+    this.inputAudio = [];
     this.closing = undefined;
     if (socket && socket.readyState === WebSocket.OPEN) socket.close();
     if (this.state.status !== "error") this.setState({ status: "off", speaking: null, thinking: false });
@@ -318,4 +388,33 @@ export class LiveVoice {
 
 function clip(text: string): string {
   return text.length > MAX_APPEND_CHARS ? `${text.slice(0, MAX_APPEND_CHARS - 1)}…` : text;
+}
+
+function rms(pcm: Buffer): number {
+  let sum = 0;
+  const samples = Math.floor(pcm.length / 2);
+  for (let i = 0; i < samples; i++) {
+    const value = pcm.readInt16LE(i * 2) / 32768;
+    sum += value * value;
+  }
+  return samples ? Math.sqrt(sum / samples) : 0;
+}
+
+/** Wrap raw mono PCM16 in a WAV container. */
+function wav(pcm: Buffer, sampleRate: number): Buffer {
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
 }

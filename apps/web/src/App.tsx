@@ -12,6 +12,10 @@ import { useVoice } from "./lib/voice";
 
 type Mode = "desk" | "trainer";
 
+// Ctrl+Space switches keyboard input sources on macOS, and Cmd+Space is Spotlight.
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
+const VOICE_SHORTCUT = IS_MAC ? "⌘⇧Space" : "Ctrl+Shift+Space";
+
 function initialMode(): Mode {
   const param = new URLSearchParams(location.search).get("mode");
   if (param === "trainer" || param === "desk") return param;
@@ -58,7 +62,7 @@ export function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.code === "Space") {
+      if ((IS_MAC ? event.metaKey : event.ctrlKey) && event.shiftKey && event.code === "Space") {
         event.preventDefault();
         toggleVoice();
       }
@@ -102,7 +106,7 @@ export function App() {
       className={`grid size-10 place-items-center rounded-xl transition disabled:opacity-40 ${
         voiceActive ? "bg-accent/15 text-accent" : "text-well-400 hover:bg-well-800 hover:text-well-50"
       }`}
-      title={snapshot.info.voiceConfigured ? "Voice (Ctrl+Space)" : "Voice needs an OpenAI key"}
+      title={snapshot.info.voiceConfigured ? `Voice (${VOICE_SHORTCUT})` : "Voice needs an OpenAI key"}
     >
       {voiceActive ? <PhoneOff size={18} /> : <Mic size={18} />}
     </button>
@@ -215,7 +219,7 @@ export function App() {
             type="button"
             onClick={toggleVoice}
             disabled={!snapshot.info.voiceConfigured}
-            title="Toggle voice (Ctrl+Space)"
+            title={`Toggle voice (${VOICE_SHORTCUT})`}
           >
             <Orb mode={orb} levels={voice.levels} size={52} />
           </button>
@@ -226,7 +230,7 @@ export function App() {
                 ? "Add an OpenAI key to talk"
                 : voiceActive
                   ? `${formatDuration(seconds)} · ${snapshot.info.voiceModel}`
-                  : "Ctrl+Space to talk"}
+                  : `${VOICE_SHORTCUT} to talk`}
             </div>
           </div>
           {voiceActive && (

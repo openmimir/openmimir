@@ -47,7 +47,8 @@ jobs:
           cd apps/cli/dist/bin
           for target in */; do
             target="${target%/}"
-            tar -czf "mimir-${GITHUB_REF_NAME}-${target}.tar.gz" -C "$target" mimir web
+            # No version in the name, so releases/latest/download/<file> is a stable URL.
+            tar -czf "mimir-${target}.tar.gz" -C "$target" mimir web
           done
           shasum -a 256 *.tar.gz > checksums.txt
       - uses: softprops/action-gh-release@v2

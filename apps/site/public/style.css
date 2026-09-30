@@ -1,0 +1,307 @@
+:root {
+  --bg: #07090a;
+  --panel: #0d1113;
+  --line: #232b2f;
+  --muted: #8a979c;
+  --text: #c9d3d6;
+  --bright: #eef3f4;
+  --accent: #36e2c4;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    16px / 1.6 Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+code,
+kbd,
+pre {
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+:not(pre) > code {
+  font-size: 0.9em;
+  background: #171d20;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+kbd {
+  font-size: 0.85em;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 0.05em 0.4em;
+  margin: 0 0.1em;
+}
+
+.nav,
+main,
+footer {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 72px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 650;
+  color: var(--bright);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+}
+
+.nav nav {
+  display: flex;
+  gap: 22px;
+  font-size: 14px;
+}
+
+.nav nav a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.nav nav a:hover {
+  color: var(--bright);
+}
+
+.hero {
+  text-align: center;
+  padding: 72px 0 56px;
+}
+
+h1 {
+  color: var(--bright);
+  font-size: clamp(34px, 6vw, 56px);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  margin: 36px auto 18px;
+  max-width: 760px;
+}
+
+h2 {
+  color: var(--bright);
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  margin: 0 0 20px;
+}
+
+h3 {
+  color: var(--bright);
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+
+.lead {
+  font-size: 19px;
+  max-width: 660px;
+  margin: 0 auto;
+  color: var(--muted);
+}
+
+.small {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.install {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 34px;
+  padding: 8px 8px 8px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  max-width: 100%;
+}
+
+.install code {
+  background: none;
+  padding: 0;
+  color: var(--bright);
+  font-size: 15px;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+.install button {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--accent);
+  border: 0;
+  border-radius: 9px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+/* The well: a still pool that ripples, same as the app's voice indicator. */
+.well {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto;
+  display: grid;
+  place-items: center;
+}
+
+.well span {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  animation: ripple 2.8s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+
+.well span:nth-child(2) {
+  animation-delay: 0.93s;
+}
+
+.well span:nth-child(3) {
+  animation-delay: 1.86s;
+}
+
+.well i {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 36px var(--accent);
+}
+
+@keyframes ripple {
+  from {
+    transform: scale(0.45);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .well span {
+    animation: none;
+    opacity: 0.3;
+  }
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 24px 0 64px;
+}
+
+@media (max-width: 640px) {
+  .features {
+    grid-template-columns: 1fr;
+  }
+  .nav nav a:not(:last-child) {
+    display: none;
+  }
+}
+
+.features article {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 22px;
+}
+
+.features p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.how,
+.faq {
+  padding: 40px 0;
+  border-top: 1px solid var(--line);
+}
+
+.how ol {
+  padding-left: 20px;
+  margin: 0 0 28px;
+}
+
+.how li {
+  margin-bottom: 12px;
+}
+
+.diagram {
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+  overflow-x: auto;
+}
+
+details {
+  border-bottom: 1px solid var(--line);
+  padding: 14px 0;
+}
+
+summary {
+  cursor: pointer;
+  color: var(--bright);
+  font-weight: 550;
+}
+
+details p {
+  margin: 10px 0 0;
+  color: var(--muted);
+}
+
+footer {
+  display: flex;
+  gap: 20px;
+  padding-top: 40px;
+  padding-bottom: 48px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+footer a {
+  text-decoration: none;
+}
+
+footer a:hover {
+  color: var(--bright);
+}

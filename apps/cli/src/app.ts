@@ -25,32 +25,42 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
   const bus = new EventBus();
   const store = new Store(process.env.MIMIR_DB ?? join(mimirHome(), "mimir.db"));
 
-  const service = config.opencode.url === "auto" ? await discoverOpenCodeService() : undefined;
-  if (config.opencode.url === "auto") {
-    log(
-      service
-        ? `[opencode] using your OpenCode background service at ${service.url}`
-        : "[opencode] no OpenCode background service found, starting a private server",
+  const adapters = new Map<AgentKind, AgentAdapter>();
+  // OpenCode is used when installed or when a server was configured explicitly.
+  const auto = config.opencode.url === "auto";
+  if (!auto || Bun.which("opencode")) {
+    const service = auto ? await discoverOpenCodeService() : undefined;
+    if (auto) {
+      log(
+        service
+          ? `[opencode] using your OpenCode background service at ${service.url}`
+          : "[opencode] no OpenCode background service found, starting a private server",
+      );
+    }
+    adapters.set(
+      "opencode",
+      new OpenCodeAdapter(
+        service
+          ? { ...service, manage: false, log }
+          : {
+              url: auto ? "http://127.0.0.1:4097" : config.opencode.url,
+              username: config.opencode.username,
+              password: config.opencode.password,
+              manage: config.opencode.manage,
+              log,
+            },
+      ),
     );
   }
-  const opencode = new OpenCodeAdapter(
-    service
-      ? { ...service, manage: false, log }
-      : {
-          url: config.opencode.url === "auto" ? "http://127.0.0.1:4097" : config.opencode.url,
-          username: config.opencode.username,
-          password: config.opencode.password,
-          manage: config.opencode.manage,
-          log,
-        },
-  );
-  const adapters = new Map<AgentKind, AgentAdapter>([["opencode", opencode]]);
   if (config.agents.claude && Bun.which("claude")) adapters.set("claude", new ClaudeCodeAdapter({ log }));
   if (config.agents.codex && Bun.which("codex")) adapters.set("codex", new CodexAdapter({ log }));
+  if (adapters.size === 0) log("[agents] no coding agents found. Install OpenCode, Claude Code or Codex.");
 
   const sessions = new SessionManager(adapters, store, bus, log);
   const projects = new ProjectIndex(config.projectRoots, config.projects);
-  const defaultAgent = adapters.has(config.agents.default) ? config.agents.default : "opencode";
+  const defaultAgent: AgentKind = adapters.has(config.agents.default)
+    ? config.agents.default
+    : ([...adapters.keys()][0] ?? "opencode");
 
   let foreman: Foreman | undefined;
   let foremanError: string | undefined;
@@ -172,7 +182,6 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
     store,
     sessions,
     voice,
-    opencode,
     info,
     snapshot,
     voiceHistory,

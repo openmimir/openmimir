@@ -1,0 +1,10 @@
+{
+  "name": "@openmimir/site",
+  "version": "0.0.0",
+  "private": true,
+  "description": "openmimir.com: a static page and the install script, served by Cloudflare.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  }
+}

@@ -3,7 +3,7 @@
 **One chat that runs all your coding agents. Type to it, or talk to it hands-free.**
 
 Mimir is one conversation in front of all your coding agents: OpenCode, Claude Code and Codex. It
-already sees the sessions you started at your desk, so "how's the reachkit refactor going?" or
+already sees the sessions you started at your desk, so "how's the billing refactor going?" or
 "carry on with that" just works, and new requests start new sessions without you picking an agent. Add full-duplex voice and you can run it all from an indoor bike, a treadmill or a walk: it
 listens while it talks, you can interrupt it, and it tells you when a session finishes or needs you.
 
@@ -30,26 +30,29 @@ listens while it talks, you can interrupt it, and it tells you when a session fi
   (the one your OpenCode app uses), so Mimir's messages show up live in your OpenCode windows; Claude Code and Codex run headless (`claude -p`, `codex exec`) and are picked up
   automatically when installed.
 
-## Requirements
-
-- macOS (Apple Silicon or Intel)
-- [Bun](https://bun.sh) 1.3+
-- [OpenCode](https://opencode.ai) v2 (`opencode` on your PATH). Claude Code and Codex are optional.
-- An OpenAI API key (voice, and the default foreman). An Anthropic key is optional.
-
-## Quick start
+## Install
 
 ```sh
-bunx openmimir init    # API keys, foreman model, where your repos live
-bunx openmimir         # starts the server
+curl -fsSL https://openmimir.com/install.sh | bash
+mimir init    # API keys, main model, where your repos live
+mimir         # start, then open http://localhost:4747
 ```
 
-Open <http://localhost:4747>, then type a request or press **⌘⇧Space** to talk:
+The installer puts `mimir` in `~/.openmimir/bin` and adds it to your PATH. Run it again to update.
+With Bun installed you can also use `bunx openmimir`.
+
+Then type a request, or press **⌘⇧Space** to talk:
 
 > "Add a section about setup to the openmimir README."
 
 Switch to **Trainer** mode for a big, glanceable screen with live captions and huge approve/reject
 buttons.
+
+## Requirements
+
+- macOS (Apple Silicon or Intel)
+- At least one of [OpenCode](https://opencode.ai) v2, Claude Code or Codex
+- An OpenAI API key (voice, and the default model). An Anthropic key is optional.
 
 ### From source
 

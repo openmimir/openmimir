@@ -1,6 +1,6 @@
-import { AGENT_LABELS, type AgentSession } from "@openmimir/protocol";
+import { AGENT_LABELS, type AgentSession, type SessionEvent } from "@openmimir/protocol";
 import { Square } from "lucide-react";
-import { projectName, STATUS, timeAgo } from "../lib/format";
+import { FINISHED, projectName, STATUS, timeAgo } from "../lib/format";
 
 /** A session in the desk side panel. */
 export function SessionCard({
@@ -98,15 +98,23 @@ export function GlanceRow({ session }: { session: AgentSession }) {
 export function SessionLine({
   session,
   text,
+  event,
   onOpen,
   big = false,
 }: {
   session?: AgentSession;
   text: string;
+  event?: SessionEvent;
   onOpen?: (id: string) => void;
   big?: boolean;
 }) {
-  const status = session ? STATUS[session.status] : undefined;
+  // While the session rests, show what this line is about (e.g. a green "Finished");
+  // once it runs or needs the user again, its live status matters more.
+  const status = session
+    ? event === "finished" && session.status === "idle"
+      ? FINISHED
+      : STATUS[session.status]
+    : undefined;
   const Icon = status?.icon;
   return (
     <button
@@ -116,7 +124,7 @@ export function SessionLine({
     >
       {Icon && status ? (
         <Icon
-          size={15}
+          size={big ? 18 : 15}
           className={`mt-0.5 shrink-0 ${status.color} ${session?.status === "working" ? "animate-spin [animation-duration:2s]" : ""}`}
         />
       ) : null}

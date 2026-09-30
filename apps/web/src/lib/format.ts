@@ -1,5 +1,5 @@
 import type { SessionStatus } from "@openmimir/protocol";
-import { AlertTriangle, CircleDashed, Hand, LoaderCircle, type LucideIcon } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Hand, LoaderCircle, type LucideIcon } from "lucide-react";
 
 export const STATUS: Record<SessionStatus, { label: string; color: string; bg: string; icon: LucideIcon }> = {
   working: { label: "Running", color: "text-working", bg: "bg-working", icon: LoaderCircle },
@@ -7,6 +7,9 @@ export const STATUS: Record<SessionStatus, { label: string; color: string; bg: s
   failed: { label: "Failed", color: "text-failed", bg: "bg-failed", icon: AlertTriangle },
   idle: { label: "Idle", color: "text-idle", bg: "bg-idle", icon: CircleDashed },
 };
+
+/** A turn that just ended well. Only used where finishing is the news, not as a session status. */
+export const FINISHED = { label: "Finished", color: "text-done/80", bg: "bg-done/80", icon: CheckCircle2 };
 
 export function timeAgo(timestamp: number, now = Date.now()): string {
   const seconds = Math.max(0, Math.round((now - timestamp) / 1000));

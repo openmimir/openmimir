@@ -6,6 +6,8 @@
 export type MessageRole = "user" | "assistant" | "notice";
 export type MessageSource = "text" | "voice" | "system";
 
+export type SessionEvent = "finished" | "failed" | "stopped" | "approval";
+
 /** One thing the foreman did while answering, shown inline in the conversation. */
 export interface ForemanStep {
   id: string;
@@ -14,7 +16,7 @@ export interface ForemanStep {
   /** The session this step read or changed, if any. */
   sessionId?: string;
   state: "running" | "done" | "error";
-  /** What Mimir sent to the session, shown in full so nothing happens behind the user's back. */
+  /** The task Mimir wrote for the session. It is sent wrapped in a dispatch header. */
   message?: string;
   /** Extra detail, e.g. how many results or an error. */
   detail?: string;
@@ -29,6 +31,8 @@ export interface ChatMessage {
   pending?: boolean;
   /** What the foreman did while producing this reply. */
   steps?: ForemanStep[];
+  /** On notices: what happened to the session, e.g. it finished its turn. */
+  event?: SessionEvent;
   /** Set on notices about a session, so interfaces can show its live status. */
   sessionId?: string;
   createdAt: number;

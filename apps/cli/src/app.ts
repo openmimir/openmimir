@@ -114,7 +114,7 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
     }
     // A start already shows as a step in the reply that caused it.
     if (announcement.kind === "started") return;
-    foreman?.notice(announcement.text, announcement.sessionId);
+    foreman?.notice(announcement.text, announcement.sessionId, announcement.kind);
     voice?.announce(announcement.text);
   });
 

@@ -85,12 +85,13 @@ function SentMessage({ text, big }: { text: string; big: boolean }) {
     <button
       type="button"
       onClick={() => setExpanded(!expanded)}
-      className={`mt-1.5 ml-5 block w-[calc(100%-1.25rem)] rounded-lg border-l-2 border-accent-dim bg-well-900 px-3 py-2 text-left text-well-200 ${
+      className={`mt-1 ml-5 flex w-[calc(100%-1.25rem)] items-start gap-1 text-left text-well-500 hover:text-well-400 ${
         big ? "text-base" : "text-xs"
       }`}
-      title={expanded ? "Show less" : "Show the full message"}
+      title={expanded ? "Show less" : "Show what Mimir sent"}
     >
-      <span className={`block whitespace-pre-wrap ${expanded ? "" : "line-clamp-3"}`}>{text}</span>
+      <ChevronRight size={12} className={`mt-0.5 shrink-0 transition ${expanded ? "rotate-90" : ""}`} />
+      <span className={expanded ? "whitespace-pre-wrap text-well-400" : "truncate"}>{text}</span>
     </button>
   );
 }

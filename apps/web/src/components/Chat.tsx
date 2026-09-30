@@ -23,6 +23,7 @@ export function MessageView({
       <SessionLine
         session={sessions.get(message.sessionId)}
         text={message.text}
+        event={message.event}
         onOpen={onOpenSession}
         big={big}
       />

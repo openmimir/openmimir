@@ -5,6 +5,7 @@ import {
   describeAction,
   type ForemanStep,
   type MessageSource,
+  type SessionEvent,
 } from "@openmimir/protocol";
 import { type LanguageModel, type ModelMessage, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
@@ -141,13 +142,14 @@ Tell the user what this means for what they asked, in your own words. Lead with 
   }
 
   /** Record something that happened without asking the model, e.g. a session finishing. */
-  notice(text: string, sessionId?: string): ChatMessage {
+  notice(text: string, sessionId?: string, event?: SessionEvent): ChatMessage {
     const message: ChatMessage = {
       id: newId("msg"),
       role: "notice",
       source: "system",
       text,
       sessionId,
+      event,
       createdAt: Date.now(),
     };
     this.deps.store.saveMessage(message);
@@ -329,7 +331,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
           const step = begin(
             `Started a new ${AGENT_LABELS[chosen]} session in ${ref.name}`,
             undefined,
-            message,
+            instructions,
           );
           try {
             const session = await sessions.start({
@@ -376,7 +378,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
             };
           }
           const message = dispatch(text);
-          const step = begin("Sent instructions to", session_id, message);
+          const step = begin("Sent instructions to", session_id, text);
           try {
             const next = await sessions.message(session_id, message);
             step.done();
@@ -477,6 +479,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
           source: "system",
           text: request.text,
           sessionId: request.internal.sessionId,
+          event: "finished",
           createdAt: Date.now(),
         }
       : { id: newId("msg"), role: "user", source: request.source, text: request.text, createdAt: Date.now() };

@@ -1,4 +1,11 @@
-import { AGENT_LABELS, type AgentKind, type ChatMessage, type MessageSource } from "@openmimir/protocol";
+import {
+  AGENT_LABELS,
+  type AgentKind,
+  type ChatMessage,
+  describeAction,
+  type ForemanStep,
+  type MessageSource,
+} from "@openmimir/protocol";
 import { type LanguageModel, type ModelMessage, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 import { type EventBus, newId } from "./bus.ts";
@@ -52,6 +59,12 @@ const VOICE_NOTE = `This request came in by voice. A separate voice model will s
 const TEXT_NOTE = `This request came in by keyboard. Markdown is fine. Stay concise.`;
 
 const AGENT_ENUM = z.enum(["opencode", "claude", "codex"]);
+
+type BeginStep = (
+  label: string,
+  sessionId?: string,
+  detail?: string,
+) => { done: (note?: string, sessionId?: string) => void; fail: (error: unknown) => void };
 
 export class Foreman {
   private queue: Promise<unknown> = Promise.resolve();
@@ -140,7 +153,7 @@ export class Foreman {
     return result;
   }
 
-  private tools(source: ForemanRequest["source"], progress: (label: string) => void) {
+  private tools(source: ForemanRequest["source"], begin: BeginStep) {
     const { sessions, projects, defaultAgent } = this.deps;
     return {
       list_projects: tool({
@@ -150,16 +163,18 @@ export class Foreman {
       }),
       recent_sessions: tool({
         description:
-          "Recent sessions across all agents, including sessions the user started at their desk, with what each one said last. Use it to find the session the user is referring to.",
+          "Recent sessions across all agents, including ones the user started at their desk, with what each one said last. Use it to find the session the user is referring to.",
         inputSchema: z.object({
           project: z.string().optional().describe("Only sessions in this project."),
           limit: z.number().int().min(1).max(30).default(12),
         }),
         execute: async ({ project, limit }) => {
-          progress("Looking at recent sessions");
+          const step = begin(
+            project ? `Looked through recent sessions in ${project}` : "Looked through recent sessions",
+          );
           const all = await sessions.refresh(true);
           const wanted = project?.toLowerCase().replace(/[^a-z0-9]/g, "");
-          return all
+          const found = all
             .filter(
               (t) =>
                 !wanted ||
@@ -168,20 +183,21 @@ export class Foreman {
                   .replace(/[^a-z0-9/]/g, "")
                   .includes(wanted),
             )
-            .slice(0, limit)
-            .map((t) => ({
-              id: t.id,
-              title: t.title,
-              project: t.directory.split("/").filter(Boolean).pop(),
-              agent: AGENT_LABELS[t.agent],
-              status: statusLabel(t.status),
-              lastActive: ago(t.updatedAt),
-              lastSaid: t.lastText?.slice(-400),
-            }));
+            .slice(0, limit);
+          step.done(`${found.length} found`);
+          return found.map((t) => ({
+            id: t.id,
+            title: t.title,
+            project: t.directory.split("/").filter(Boolean).pop(),
+            agent: AGENT_LABELS[t.agent],
+            status: statusLabel(t.status),
+            lastActive: ago(t.updatedAt),
+            lastSaid: t.lastText?.slice(-400),
+          }));
         },
       }),
       start_session: tool({
-        description: "Start a new session: a fresh agent session in a project, with its first instructions.",
+        description: "Start a new agent session in a project, with its first instructions.",
         inputSchema: z.object({
           project: z.string().describe("Project name from the known projects, or an absolute path."),
           title: z.string().describe("Short title, 2-6 words, e.g. 'Fix flaky auth tests'."),
@@ -194,19 +210,29 @@ export class Foreman {
           const chosen = agent ?? defaultAgent;
           if (!sessions.agents.includes(chosen))
             return { error: `${AGENT_LABELS[chosen]} is not available.` };
-          progress(`Starting a session in ${ref.name}`);
-          const session = await sessions.start({
-            agent: chosen,
-            directory: ref.directory,
-            title,
+          const step = begin(
+            `Started a new ${AGENT_LABELS[chosen]} session in ${ref.name}`,
+            undefined,
             instructions,
-          });
-          return {
-            sessionId: session.id,
-            project: ref.name,
-            agent: AGENT_LABELS[chosen],
-            status: statusLabel(session.status),
-          };
+          );
+          try {
+            const session = await sessions.start({
+              agent: chosen,
+              directory: ref.directory,
+              title,
+              instructions,
+            });
+            step.done(undefined, session.id);
+            return {
+              sessionId: session.id,
+              project: ref.name,
+              agent: AGENT_LABELS[chosen],
+              status: statusLabel(session.status),
+            };
+          } catch (error) {
+            step.fail(error);
+            throw error;
+          }
         },
       }),
       message_session: tool({
@@ -229,19 +255,26 @@ export class Foreman {
               reason: `"${session.title}" was active ${ago(session.updatedAt)} outside Mimir and may be open on the user's screen. Ask before sending to it.`,
             };
           }
-          progress(`Messaging "${session.title}"`);
-          const next = await sessions.message(session_id, text);
-          return { sessionId: next.id, status: statusLabel(next.status) };
+          const step = begin("Sent instructions to", session_id, text);
+          try {
+            const next = await sessions.message(session_id, text);
+            step.done();
+            return { sessionId: next.id, status: statusLabel(next.status) };
+          } catch (error) {
+            step.fail(error);
+            throw error;
+          }
         },
       }),
       session_status: tool({
         description: "Get a session's status and the latest thing its agent said.",
         inputSchema: z.object({ session_id: z.string() }),
         execute: async ({ session_id }) => {
-          progress("Checking on a session");
           const session = sessions.get(session_id);
           if (!session) return { error: `No session ${session_id}` };
+          const step = begin("Checked", session_id);
           const latest = await sessions.latestText(session_id).catch(() => session.lastText);
+          step.done();
           return {
             title: session.title,
             agent: AGENT_LABELS[session.agent],
@@ -259,23 +292,30 @@ export class Foreman {
           include_patch: z.boolean().default(false).describe("Include patch text (truncated)."),
         }),
         execute: async ({ session_id, include_patch }) => {
-          progress("Looking at changes");
-          const changes = await sessions.changes(session_id);
-          return changes.slice(0, 40).map((c) => ({
-            file: c.file,
-            status: c.status,
-            additions: c.additions,
-            deletions: c.deletions,
-            patch: include_patch ? c.patch.slice(0, 1500) : undefined,
-          }));
+          const step = begin("Read the changes in", session_id);
+          try {
+            const changes = await sessions.changes(session_id);
+            step.done(`${changes.length} file${changes.length === 1 ? "" : "s"} changed`);
+            return changes.slice(0, 40).map((c) => ({
+              file: c.file,
+              status: c.status,
+              additions: c.additions,
+              deletions: c.deletions,
+              patch: include_patch ? c.patch.slice(0, 1500) : undefined,
+            }));
+          } catch (error) {
+            step.fail(error);
+            throw error;
+          }
         },
       }),
       stop_session: tool({
         description: "Interrupt a session that is currently running.",
         inputSchema: z.object({ session_id: z.string() }),
         execute: async ({ session_id }) => {
-          progress("Stopping a session");
+          const step = begin("Stopped", session_id);
           const session = await sessions.stop(session_id);
+          step.done();
           return { sessionId: session.id, status: statusLabel(session.status) };
         },
       }),
@@ -294,8 +334,13 @@ export class Foreman {
             const check = canApprove(approval.tier, source, user_confirmed);
             if (!check.allowed) return { refused: true, reason: check.reason };
           }
-          progress(decision === "approve" ? "Approving" : "Rejecting");
+          const verb = decision === "approve" ? "Approved" : "Rejected";
+          const step = begin(
+            `${verb} ${describeAction(approval.action, approval.resources)}`,
+            approval.sessionId,
+          );
           const result = await sessions.resolveApproval(approval_id, decision);
+          step.done();
           return { approvalId: result.id, status: result.status };
         },
       }),
@@ -304,7 +349,6 @@ export class Foreman {
 
   private async run(request: ForemanRequest): Promise<ChatMessage> {
     const { store, bus } = this.deps;
-    await this.deps.sessions.refresh().catch(() => undefined);
     const userMessage: ChatMessage = {
       id: newId("msg"),
       role: "user",
@@ -325,10 +369,46 @@ export class Foreman {
     };
     bus.publish({ type: "message.upsert", message: reply });
     bus.publish({ type: "activity", activity: { busy: true, label: "Thinking" } });
+    await this.deps.sessions.refresh().catch(() => undefined);
 
-    const progress = (label: string) => {
-      bus.publish({ type: "activity", activity: { busy: true, label } });
-      request.onProgress?.(label);
+    const publishReply = () =>
+      bus.publish({
+        type: "message.upsert",
+        message: { ...reply, steps: reply.steps?.map((step) => ({ ...step })) },
+      });
+
+    const begin: BeginStep = (label, sessionId, detail) => {
+      const step: ForemanStep = {
+        id: newId("stp"),
+        label,
+        sessionId,
+        state: "running",
+        detail: detail?.slice(0, 2000),
+      };
+      reply.steps = [...(reply.steps ?? []), step];
+      if (sessionId) this.deps.sessions.focus(sessionId);
+      publishReply();
+      // Steps on a session show its chip in the UI; spoken progress needs the name.
+      const title = sessionId ? this.deps.sessions.get(sessionId)?.title : undefined;
+      const spoken = title ? `${label} "${title}"` : label;
+      bus.publish({ type: "activity", activity: { busy: true, label: spoken } });
+      request.onProgress?.(spoken);
+      return {
+        done: (note, id) => {
+          step.state = "done";
+          if (note) step.detail = step.detail ? `${step.detail}\n\n${note}` : note;
+          if (id) {
+            step.sessionId = id;
+            this.deps.sessions.focus(id);
+          }
+          publishReply();
+        },
+        fail: (error) => {
+          step.state = "error";
+          step.detail = error instanceof Error ? error.message : String(error);
+          publishReply();
+        },
+      };
     };
 
     let lastFlush = 0;
@@ -342,7 +422,7 @@ export class Foreman {
           request.source === "voice" ? VOICE_NOTE : TEXT_NOTE,
         ].join("\n\n"),
         messages: this.history(),
-        tools: this.tools(request.source, progress),
+        tools: this.tools(request.source, begin),
         stopWhen: stepCountIs(8),
         onError: ({ error }) => {
           streamError = error;

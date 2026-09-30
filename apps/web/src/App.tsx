@@ -6,6 +6,8 @@ import { Chat } from "./components/Chat";
 import { Logo } from "./components/Logo";
 import { Orb, type OrbMode } from "./components/Orb";
 import { SessionCard } from "./components/SessionCard";
+import { SessionDetail } from "./components/SessionDetail";
+import { TrainerFeed } from "./components/TrainerFeed";
 import { formatDuration } from "./lib/format";
 import { useMimir } from "./lib/mimir";
 import { useVoice } from "./lib/voice";
@@ -45,9 +47,12 @@ const ORB_LABEL: Record<OrbMode, string> = {
 
 const isActive = (t: AgentSession) => t.status === "working" || t.status === "needs_you";
 
-/** Active sessions first, then the ones Mimir touched, then everything else. */
+const FOCUS_MS = 30 * 60_000;
+const inFocus = (t: AgentSession) => Boolean(t.focusedAt && Date.now() - t.focusedAt < FOCUS_MS);
+
+/** Running first, then what Mimir is looking at, then what it drove, then everything else. */
 function ordered(sessions: AgentSession[]): AgentSession[] {
-  const rank = (t: AgentSession) => (isActive(t) ? 0 : t.tracked ? 1 : 2);
+  const rank = (t: AgentSession) => (isActive(t) ? 0 : inFocus(t) ? 1 : t.tracked ? 2 : 3);
   return [...sessions].sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
 }
 
@@ -56,6 +61,7 @@ export function App() {
   const voice = useVoice(mimir.api);
   const [mode, setModeState] = useState<Mode>(initialMode);
   const [panel, setPanelState] = useState(() => localStorage.getItem("mimir.panel") === "open");
+  const [selected, setSelected] = useState<string | null>(null);
   const snapshot = mimir.snapshot;
 
   const setMode = (next: Mode) => {
@@ -65,6 +71,10 @@ export function App() {
   const setPanel = (open: boolean) => {
     localStorage.setItem("mimir.panel", open ? "open" : "closed");
     setPanelState(open);
+  };
+  const openSession = (id: string) => {
+    setSelected(id);
+    setPanel(true);
   };
 
   const voiceActive = voice.status === "live" || voice.status === "connecting";
@@ -116,6 +126,7 @@ export function App() {
   const seconds = snapshot.voice.seconds ?? 0;
   const sessions = ordered(snapshot.sessions);
   const activeCount = snapshot.sessions.filter(isActive).length;
+  const selectedSession = selected ? sessionsById.get(selected) : undefined;
 
   const approvals = snapshot.approvals.map((approval) => (
     <ApprovalCard
@@ -128,8 +139,8 @@ export function App() {
   ));
 
   if (mode === "trainer") {
-    // Glanceable: what is running or waiting, then what Mimir touched recently.
-    const shown = sessions.filter((t) => isActive(t) || t.tracked).slice(0, 6);
+    // Glanceable: what is running or waiting, and what Mimir is working with right now.
+    const shown = sessions.filter((t) => isActive(t) || inFocus(t)).slice(0, 4);
     return (
       <div className="flex h-full flex-col gap-4 p-4 sm:p-6">
         <header className="flex items-center gap-4">
@@ -165,21 +176,18 @@ export function App() {
 
         {voice.error && <div className="text-xl text-failed">{voice.error}</div>}
 
-        <main className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-          <div className="flex flex-col gap-4">
-            {approvals}
+        {approvals.length > 0 && <div className="flex flex-col gap-3">{approvals}</div>}
+
+        <main className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[3fr_2fr]">
+          <TrainerFeed messages={snapshot.messages} sessions={sessionsById} />
+          <section className="scroll-thin flex max-h-[40%] min-h-0 shrink-0 flex-col gap-3 overflow-y-auto lg:max-h-none">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-well-500">In focus</h2>
             {shown.length === 0 ? (
-              <div className="py-16 text-center text-2xl text-well-500">
-                Nothing running. Ask Mimir for something.
-              </div>
+              <div className="text-xl text-well-500">Nothing running or in focus.</div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {shown.map((session) => (
-                  <SessionCard key={session.id} session={session} big />
-                ))}
-              </div>
+              shown.map((session) => <SessionCard key={session.id} session={session} big />)
             )}
-          </div>
+          </section>
         </main>
 
         <footer className="min-h-28 rounded-2xl border border-well-700 bg-well-900 p-5">
@@ -287,7 +295,7 @@ export function App() {
           <Chat
             messages={snapshot.messages}
             sessions={sessionsById}
-            activity={snapshot.activity}
+            onOpenSession={openSession}
             onSend={mimir.sendChat}
             voiceButton={voiceButton}
             aboveComposer={
@@ -297,7 +305,16 @@ export function App() {
         </main>
 
         {panel && (
-          <aside className="scroll-thin flex w-80 shrink-0 flex-col gap-2 overflow-y-auto border-l border-well-800 bg-well-900/60 p-4">
+          <aside className="scroll-thin flex w-96 shrink-0 flex-col gap-2 overflow-y-auto border-l border-well-800 bg-well-900/60 p-4">
+            {selectedSession && (
+              <div className="mb-2 max-h-[55%] shrink-0 overflow-hidden">
+                <SessionDetail
+                  session={selectedSession}
+                  onClose={() => setSelected(null)}
+                  onStop={(id) => void mimir.stopSession(id)}
+                />
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <h2 className="text-[11px] font-semibold uppercase tracking-wider text-well-500">
                 Recent sessions, all agents
@@ -312,7 +329,13 @@ export function App() {
             </div>
             {sessions.length === 0 && <p className="text-sm text-well-500">Nothing yet.</p>}
             {sessions.slice(0, 20).map((session) => (
-              <SessionCard key={session.id} session={session} onStop={(id) => void mimir.stopSession(id)} />
+              <SessionCard
+                key={session.id}
+                session={session}
+                selected={session.id === selected}
+                onOpen={openSession}
+                onStop={(id) => void mimir.stopSession(id)}
+              />
             ))}
             <footer className="mt-auto flex flex-col gap-1 border-t border-well-800 pt-3 text-[11px] text-well-500">
               <StatusLine

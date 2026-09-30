@@ -6,6 +6,18 @@
 export type MessageRole = "user" | "assistant" | "notice";
 export type MessageSource = "text" | "voice" | "system";
 
+/** One thing the foreman did while answering, shown inline in the conversation. */
+export interface ForemanStep {
+  id: string;
+  /** Short human label, e.g. `Checked "Prod warnings and errors analysis"`. */
+  label: string;
+  /** The session this step read or changed, if any. */
+  sessionId?: string;
+  state: "running" | "done" | "error";
+  /** Extra detail, e.g. the message sent to a session or an error. */
+  detail?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -13,6 +25,8 @@ export interface ChatMessage {
   text: string;
   /** True while the foreman is still streaming this message. */
   pending?: boolean;
+  /** What the foreman did while producing this reply. */
+  steps?: ForemanStep[];
   /** Set on notices about a session, so interfaces can show its live status. */
   sessionId?: string;
   createdAt: number;
@@ -45,6 +59,8 @@ export interface AgentSession {
   origin: "mimir" | "external";
   /** True once Mimir has started or messaged it; only these get spoken updates. */
   tracked: boolean;
+  /** When the foreman last looked at or acted on it. */
+  focusedAt?: number;
   /** Last thing the agent said, trimmed for display. */
   lastText?: string;
   error?: string;

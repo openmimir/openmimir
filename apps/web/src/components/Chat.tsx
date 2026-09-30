@@ -1,16 +1,38 @@
-import type { AgentSession, ChatMessage, ForemanActivity } from "@openmimir/protocol";
+import type { AgentSession, ChatMessage } from "@openmimir/protocol";
 import { ArrowUp, Mic, Radio } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { SessionLine } from "./SessionCard";
+import { Steps } from "./Steps";
 
-function Message({ message, session }: { message: ChatMessage; session?: AgentSession }) {
-  if (message.role === "notice" && message.sessionId)
-    return <SessionLine session={session} text={message.text} />;
+/** One entry in the conversation. `big` is used on the trainer screen. */
+export function MessageView({
+  message,
+  sessions,
+  onOpenSession,
+  big = false,
+}: {
+  message: ChatMessage;
+  sessions: Map<string, AgentSession>;
+  onOpenSession?: (id: string) => void;
+  big?: boolean;
+}) {
+  if (message.role === "notice" && message.sessionId) {
+    return (
+      <SessionLine
+        session={sessions.get(message.sessionId)}
+        text={message.text}
+        onOpen={onOpenSession}
+        big={big}
+      />
+    );
+  }
   if (message.role === "notice") {
     return (
-      <div className="flex gap-2 border-l-2 border-accent-dim py-0.5 pl-3 text-sm text-well-400">
+      <div
+        className={`flex gap-2 border-l-2 border-accent-dim py-0.5 pl-3 text-well-400 ${big ? "text-lg" : "text-sm"}`}
+      >
         <Radio size={14} className="mt-0.5 shrink-0 text-accent" />
         <span>{message.text.replace(/`+/g, "")}</span>
       </div>
@@ -19,7 +41,9 @@ function Message({ message, session }: { message: ChatMessage; session?: AgentSe
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-well-800 px-4 py-2.5 text-[15px] leading-relaxed text-well-50">
+        <div
+          className={`max-w-[85%] rounded-2xl rounded-br-md bg-well-800 px-4 py-2.5 leading-relaxed text-well-50 ${big ? "text-xl" : "text-[15px]"}`}
+        >
           {message.source === "voice" && <Mic size={12} className="mb-1 text-accent" />}
           <div className="whitespace-pre-wrap">{message.text}</div>
         </div>
@@ -29,12 +53,17 @@ function Message({ message, session }: { message: ChatMessage; session?: AgentSe
   return (
     <div className="flex gap-3">
       <div className="mt-1.5 size-2.5 shrink-0 rounded-full bg-accent shadow-[0_0_10px] shadow-accent/60" />
-      <div className="prose-mimir min-w-0 flex-1 text-[15px] leading-relaxed text-well-200">
-        {message.text ? (
-          <Markdown remarkPlugins={[remarkGfm]}>{message.text}</Markdown>
-        ) : (
-          <span className="pulse-dot text-well-500">…</span>
+      <div className="min-w-0 flex-1">
+        {message.steps && message.steps.length > 0 && (
+          <Steps steps={message.steps} sessions={sessions} onOpenSession={onOpenSession} big={big} />
         )}
+        <div className={`prose-mimir leading-relaxed text-well-200 ${big ? "text-xl" : "text-[15px]"}`}>
+          {message.text ? (
+            <Markdown remarkPlugins={[remarkGfm]}>{message.text}</Markdown>
+          ) : (
+            !message.steps?.length && <span className="pulse-dot text-well-500">…</span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -43,17 +72,17 @@ function Message({ message, session }: { message: ChatMessage; session?: AgentSe
 export function Chat({
   messages,
   sessions,
-  activity,
   onSend,
   voiceButton,
   aboveComposer,
+  onOpenSession,
 }: {
   messages: ChatMessage[];
   sessions: Map<string, AgentSession>;
-  activity: ForemanActivity;
   onSend: (text: string) => Promise<unknown>;
   voiceButton: React.ReactNode;
   aboveComposer?: React.ReactNode;
+  onOpenSession?: (id: string) => void;
 }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -114,15 +143,13 @@ export function Chat({
             </div>
           )}
           {messages.map((message) => (
-            <Message
+            <MessageView
               key={message.id}
               message={message}
-              session={message.sessionId ? sessions.get(message.sessionId) : undefined}
+              sessions={sessions}
+              onOpenSession={onOpenSession}
             />
           ))}
-          {activity.busy && activity.label && activity.label !== "Thinking" && (
-            <div className="pl-5 text-sm text-working">{activity.label}…</div>
-          )}
           <div ref={bottom} />
         </div>
       </div>

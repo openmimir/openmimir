@@ -15,6 +15,9 @@ export interface CodexAdapterOptions {
 
 type Json = Record<string, unknown>;
 
+/** A rollout that has not been written to for this long is not running, whatever it says. */
+const STALE_MS = 10 * 60_000;
+
 /**
  * Drives Codex through `codex exec --json` and reads past sessions from its
  * rollout files in ~/.codex/sessions/YYYY/MM/DD.
@@ -84,11 +87,12 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
     for (const file of this.recentFiles(limit)) {
       const summary = await this.summarize(file.path).catch(() => undefined);
       if (!summary) continue;
+      const { midTurn, ...rest } = summary;
       summaries.push({
-        ...summary,
+        ...rest,
         updatedAt: file.mtime,
         createdAt: file.ctime,
-        running: this.running.has(summary.externalId),
+        running: this.running.has(summary.externalId) || (midTurn && Date.now() - file.mtime < STALE_MS),
       });
     }
     return summaries;
@@ -110,8 +114,13 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
       if (externalId && firstPrompt) break;
     }
     let lastText: string | undefined;
+    // Every turn logs task_started and, when it ends, task_complete.
+    let midTurn = false;
     for (const entry of parseJsonLines(tail)) {
-      const item = (entry.payload as Json | undefined)?.item as Json | undefined;
+      const payload = entry.payload as Json | undefined;
+      if (payload?.type === "task_started") midTurn = true;
+      if (payload?.type === "task_complete" || payload?.type === "turn_aborted") midTurn = false;
+      const item = payload?.item as Json | undefined;
       if (item?.type === "AgentMessage") lastText = itemText(item) || lastText;
     }
     if (!externalId || !directory) return undefined;
@@ -120,6 +129,7 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
       directory,
       title: oneLine(stripTags(firstPrompt)) || `Codex session ${externalId.slice(0, 8)}`,
       lastText,
+      midTurn,
     };
   }
 

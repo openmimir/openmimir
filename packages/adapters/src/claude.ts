@@ -15,6 +15,9 @@ export interface ClaudeCodeAdapterOptions {
 
 type Json = Record<string, unknown>;
 
+/** A transcript that has not been written to for this long is not running, whatever it says. */
+const STALE_MS = 10 * 60_000;
+
 /**
  * Drives Claude Code through its headless mode (`claude -p`) and reads past
  * sessions from its transcripts in ~/.claude/projects.
@@ -75,12 +78,14 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     for (const file of files.slice(0, limit)) {
       const summary = await this.summarize(file.path, file.id).catch(() => undefined);
       if (!summary) continue;
+      const { midTurn: _midTurn, ...rest } = summary;
       summaries.push({
-        ...summary,
+        ...rest,
         externalId: file.id,
         updatedAt: file.mtime,
         createdAt: file.ctime,
-        running: this.running.has(file.id),
+        // Headless runs Mimir started are known; for the user's own terminals, infer from the transcript.
+        running: this.running.has(file.id) || (summary.midTurn && Date.now() - file.mtime < STALE_MS),
       });
     }
     return summaries;
@@ -103,16 +108,24 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     }
     let title = "";
     let lastText: string | undefined;
+    // A turn is over once the last message is an assistant reply that ended the turn.
+    let midTurn = false;
     for (const entry of last) {
       if (entry.type === "custom-title" && typeof entry.customTitle === "string") title = entry.customTitle;
       if (!title && entry.type === "ai-title" && typeof entry.aiTitle === "string") title = entry.aiTitle;
-      if (entry.type === "assistant") lastText = messageText(entry) || lastText;
+      if (entry.type === "assistant") {
+        lastText = messageText(entry) || lastText;
+        midTurn = (entry.message as { stop_reason?: string } | undefined)?.stop_reason !== "end_turn";
+      } else if (entry.type === "user" && !entry.isMeta) {
+        midTurn = true;
+      }
     }
     if (!directory) return undefined;
     return {
       title: title || oneLine(firstPrompt) || `Claude session ${id.slice(0, 8)}`,
       directory,
       lastText,
+      midTurn,
     };
   }
 

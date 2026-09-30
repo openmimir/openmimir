@@ -219,21 +219,43 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
           id: string;
           title?: string;
           location: { directory: string };
-          time: { created: number; updated: number };
+          time: { created: number; updated: number; idle?: number };
         }>;
       }>("GET", `/api/session?limit=${limit}&order=desc&parentID=null`),
       this.request<{ data: Record<string, unknown> }>("GET", "/api/session/active").catch(() => ({
         data: {},
       })),
     ]);
-    return sessions.data.map((session) => ({
-      externalId: session.id,
-      title: session.title || "Untitled session",
-      directory: session.location.directory,
-      createdAt: session.time.created,
-      updatedAt: session.time.updated,
-      running: session.id in active.data,
-    }));
+    return Promise.all(
+      sessions.data.map(async (session) => ({
+        externalId: session.id,
+        title: session.title || "Untitled session",
+        directory: session.location.directory,
+        createdAt: session.time.created,
+        updatedAt: session.time.updated,
+        running: session.id in active.data || (await this.looksBusy(session)),
+      })),
+    );
+  }
+
+  /**
+   * `/api/session/active` only knows about work in this OpenCode process. Sessions
+   * running in the user's own OpenCode window are detected from their messages:
+   * every finished turn ends with an "idle" entry.
+   */
+  private async looksBusy(session: { id: string; time: { updated: number; idle?: number } }) {
+    if (Date.now() - session.time.updated > STALE_MS) return false;
+    if (session.time.idle && session.time.idle >= session.time.updated) return false;
+    try {
+      const newest = await this.request<{ data: Array<{ type: string; time?: { completed?: number } }> }>(
+        "GET",
+        `/api/session/${session.id}/message?limit=1&order=desc`,
+      );
+      const last = newest.data[0];
+      return Boolean(last) && last?.type !== "idle";
+    } catch {
+      return false;
+    }
   }
 
   async createSession(input: {
@@ -307,6 +329,9 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     });
   }
 }
+
+/** A session that has not changed for this long is not running, whatever it says. */
+const STALE_MS = 10 * 60_000;
 
 /** Session rules take precedence over the user's global OpenCode config. */
 function guardRules(commands: string[]) {

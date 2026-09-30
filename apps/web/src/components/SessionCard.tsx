@@ -7,18 +7,33 @@ export function SessionCard({
   session,
   big = false,
   onStop,
+  onOpen,
+  selected = false,
 }: {
   session: AgentSession;
   big?: boolean;
   onStop?: (id: string) => void;
+  onOpen?: (id: string) => void;
+  selected?: boolean;
 }) {
   const status = STATUS[session.status];
   const Icon = status.icon;
   const detail = plain(session.error ?? session.lastText);
   return (
+    // biome-ignore lint/a11y/useSemanticElements: the card contains its own stop button, so it cannot be a <button>
     <div
-      className={`group relative shrink-0 overflow-hidden rounded-xl border bg-well-900 ${
-        session.status === "needs_you" ? "border-needs/60" : "border-well-700"
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen?.(session.id)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") onOpen?.(session.id);
+      }}
+      className={`group relative shrink-0 cursor-pointer overflow-hidden rounded-xl border bg-well-900 transition ${
+        selected
+          ? "border-accent-dim"
+          : session.status === "needs_you"
+            ? "border-needs/60"
+            : "border-well-700 hover:border-well-500"
       } ${big ? "p-5" : "p-3"}`}
     >
       <div className={`absolute inset-y-0 left-0 w-1 ${status.bg}`} />
@@ -34,7 +49,10 @@ export function SessionCard({
         {session.status === "working" && onStop && !big && (
           <button
             type="button"
-            onClick={() => onStop(session.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onStop(session.id);
+            }}
             className="rounded-md p-1 text-well-500 opacity-0 transition hover:bg-well-800 hover:text-well-50 group-hover:opacity-100"
             title="Stop"
           >
@@ -63,11 +81,25 @@ export function SessionCard({
 }
 
 /** One line in the conversation that tracks a session's live status. */
-export function SessionLine({ session, text }: { session?: AgentSession; text: string }) {
+export function SessionLine({
+  session,
+  text,
+  onOpen,
+  big = false,
+}: {
+  session?: AgentSession;
+  text: string;
+  onOpen?: (id: string) => void;
+  big?: boolean;
+}) {
   const status = session ? STATUS[session.status] : undefined;
   const Icon = status?.icon;
   return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-well-800 bg-well-900/70 px-3 py-2 text-sm">
+    <button
+      type="button"
+      onClick={() => session && onOpen?.(session.id)}
+      className={`flex w-full items-start gap-2.5 rounded-xl border border-well-800 bg-well-900/70 px-3 py-2 text-left transition hover:border-well-700 ${big ? "text-lg" : "text-sm"}`}
+    >
       {Icon && status ? (
         <Icon
           size={15}
@@ -83,7 +115,7 @@ export function SessionLine({ session, text }: { session?: AgentSession; text: s
           </div>
         )}
       </div>
-    </div>
+    </button>
   );
 }
 

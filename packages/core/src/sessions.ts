@@ -22,15 +22,15 @@ export interface Announcement {
 
 const TEXT_PREVIEW = 600;
 /** Recent sessions from all agents are refreshed this often. */
-const RECENT_TTL_MS = 20_000;
+const RECENT_TTL_MS = 5_000;
 const RECENT_PER_AGENT = 8;
 /** Sessions touched this recently outside Mimir are probably open on the user's screen. */
 export const IN_USE_MS = 3 * 60_000;
 
 /**
- * Every coding-agent session is a session. Mimir tracks the ones it started or
- * continued, and knows about recent sessions in every agent so the user can
- * pick up any of them without naming an agent or a session.
+ * Mimir is the master thread above every coding-agent session. It tracks the
+ * sessions it started or continued, and knows about recent sessions in every
+ * agent so the user can pick up any of them without naming an agent or a session.
  */
 export class SessionManager {
   private readonly announcers = new Set<(a: Announcement) => void>();
@@ -116,8 +116,22 @@ export class SessionManager {
     const id = sessionKey(agent, s.externalId);
     const tracked = this.store.session(id);
     if (tracked) {
-      // Keep Mimir's own state, but take fresher details from the agent.
-      return { ...tracked, lastText: s.lastText?.slice(-TEXT_PREVIEW) ?? tracked.lastText };
+      // Keep Mimir's own state, but take fresher details from the agent. The user may
+      // also be running it from their own window, which Mimir only sees by inference.
+      const quietFor = Date.now() - Math.max(tracked.updatedAt, s.updatedAt);
+      const status =
+        s.running && tracked.status !== "needs_you"
+          ? "working"
+          : !s.running && tracked.status === "working" && quietFor > 30_000
+            ? "idle"
+            : tracked.status;
+      return {
+        ...tracked,
+        status,
+        title: tracked.origin === "mimir" ? tracked.title : s.title,
+        updatedAt: Math.max(tracked.updatedAt, s.updatedAt),
+        lastText: s.lastText?.slice(-TEXT_PREVIEW) ?? tracked.lastText,
+      };
     }
     return {
       id,
@@ -132,6 +146,16 @@ export class SessionManager {
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
     };
+  }
+
+  /** Remember that the foreman looked at a session, so interfaces can show it. */
+  focus(id: string): AgentSession | undefined {
+    const session = this.get(id);
+    if (!session) return undefined;
+    const next = { ...session, focusedAt: Date.now() };
+    this.store.saveSession(next);
+    this.bus.publish({ type: "session.upsert", session: next });
+    return next;
   }
 
   private save(session: AgentSession, patch: Partial<AgentSession> = {}): AgentSession {
@@ -232,8 +256,8 @@ export class SessionManager {
 
   private handle(agent: AgentKind, event: AdapterEvent) {
     const session = this.store.session(sessionKey(agent, event.externalId));
-    // Sessions Mimir never touched are only shown, not narrated.
-    if (!session) return;
+    // Sessions Mimir never drove are only shown, not narrated.
+    if (!session?.tracked) return;
     switch (event.type) {
       case "started":
         this.save(session, { status: "working", error: undefined });

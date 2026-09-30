@@ -29,6 +29,8 @@ document.querySelectorAll(".reveal").forEach((el, i) => {
 const demo = document.getElementById("demo");
 const caption = document.getElementById("caption");
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const MIC =
+  '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>';
 const icon = (agent) => `<img src="/icons/${agent}.svg" alt="" />`;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, reduced ? 0 : ms));
 
@@ -52,7 +54,7 @@ async function say(text) {
   await wait(350);
   caption.classList.remove("hearing");
   caption.textContent = "Listening…";
-  add(`<span class="src">🎙</span>${text}`, "user");
+  add(`${MIC}${text}`, "user");
   await wait(700);
 }
 

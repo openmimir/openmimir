@@ -9,7 +9,7 @@ Browser tab ──WebRTC audio────────────────�
     ▼                                                       │ sideband WebSocket
 Mimir server (apps/cli) ◄───────────────────────────────────┘
     ├─ Foreman (packages/core)    frontier model + tools, one ongoing conversation
-    ├─ TaskManager                tasks across agents, approvals, announcements
+    ├─ SessionManager             sessions across agents, approvals, announcements
     ├─ Store                      SQLite in ~/.openmimir/mimir.db
     └─ Adapters (packages/adapters)
           ├─ OpenCode v2 server (`opencode serve`, started by Mimir if needed)
@@ -22,23 +22,23 @@ Mimir server (apps/cli) ◄─────────────────�
 `packages/core/src/foreman.ts`. One conversation, persisted in SQLite. Each request gets:
 
 - a fixed system prompt (role, rules, approval policy),
-- a **state summary** rebuilt every turn: known projects, recent tasks across all agents (including
+- a **state summary** rebuilt every turn: known projects, recent sessions across all agents (including
   sessions the user started outside Mimir), pending approvals. This keeps the context small; details
   stay inside each agent's own session and are
   fetched with tools when needed.
 - the last 40 messages.
 
 Requests are handled one at a time so the conversation stays ordered. Tools: `list_projects`,
-`recent_tasks`, `start_task`, `message_task`, `task_status`, `task_changes`, `stop_task`,
+`recent_sessions`, `start_session`, `message_session`, `session_status`, `session_changes`, `stop_session`,
 `resolve_approval`.
 
 Replies adapt to the channel: markdown for the keyboard, two or three spoken sentences for voice.
 
-## Tasks and agents
+## Sessions and agents
 
-Every agent session is a task, with the id `${agent}:${externalId}`. Each adapter can list its recent
+Mimir is the master thread above every agent session. Sessions are keyed `${agent}:${externalId}`. Each adapter can list its recent
 sessions (`listRecent`), so the foreman sees what the user did at their desk, not just what Mimir
-started. Continuing an existing session is the same call as following up on a Mimir task.
+started. Continuing an existing session is the same call as following up on one Mimir started.
 
 - **OpenCode** is driven over its HTTP API and event stream. It supports approvals, so Mimir adds
   session rules that force risky shell commands to ask (merged with the session's own rules).
@@ -49,7 +49,7 @@ started. Continuing an existing session is the same call as following up on a Mi
 Sessions touched outside Mimir in the last few minutes may be open on the user's screen; the foreman
 asks before sending to them.
 
-Only tasks Mimir started or continued get spoken updates. The rest are shown, not narrated.
+Only sessions Mimir started or continued get spoken updates. The rest are shown, not narrated.
 
 ## Voice
 
@@ -64,7 +64,7 @@ Only tasks Mimir started or continued get spoken updates. The rest are shown, no
    transcript deltas into turns (captions for every interface), and when GPT-Live emits
    `session.delegation.created`, it hands what the user said to the foreman. Progress goes back as
    `session.thinking.append`; the answer as `session.commentary.append`.
-4. Task events (finished, failed, needs approval) are queued and injected with
+4. Session events (finished, failed, needs approval) are queued and injected with
    `session.commentary.append` once nobody has spoken for 1.5 seconds.
 
 ## Approvals

@@ -4,9 +4,8 @@
 
 Mimir is one conversation in front of all your coding agents: OpenCode, Claude Code and Codex. It
 already sees the sessions you started at your desk, so "how's the reachkit refactor going?" or
-"carry on with that" just works, and new requests become new tasks without you picking an agent or a
-session. Add full-duplex voice and you can run it all from an indoor bike, a treadmill or a walk: it
-listens while it talks, you can interrupt it, and it tells you when a task finishes or needs you.
+"carry on with that" just works, and new requests start new sessions without you picking an agent. Add full-duplex voice and you can run it all from an indoor bike, a treadmill or a walk: it
+listens while it talks, you can interrupt it, and it tells you when a session finishes or needs you.
 
 > Status: early (v0.1). Works on macOS at a desk and on the indoor trainer. Phone calls and
 > outdoor/running mode are next. See the [roadmap](#roadmap).
@@ -17,17 +16,17 @@ listens while it talks, you can interrupt it, and it tells you when a task finis
  Keyboard chat │ Trainer screen │ Full-duplex voice (GPT-Live over WebRTC)
                └───────┬────────┘
                Mimir server on your Mac (one process)
-        foreman model · memory · task state · approval rules
+        foreman model · memory · session state · approval rules
                        │
           OpenCode · Claude Code · Codex
 ```
 
 - **The foreman** is a frontier model (OpenAI or Anthropic, your choice). It sees recent sessions in
-  every agent, starts new tasks, continues existing ones, checks status and changes, and handles
+  every agent, starts new sessions, continues existing ones, checks status and changes, and handles
   approvals.
 - **Voice** uses OpenAI's `gpt-live-1`. Your browser streams audio straight to OpenAI; the Mimir
   server brokers the session, listens in, and handles everything the voice model delegates.
-- **Tasks** are agent sessions. OpenCode runs through its server (Mimir starts `opencode serve` if
+- **Sessions** are the agents' own sessions. OpenCode runs through its server (Mimir starts `opencode serve` if
   needed); Claude Code and Codex run headless (`claude -p`, `codex exec`) and are picked up
   automatically when installed.
 
@@ -82,7 +81,7 @@ variables override it: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MIMIR_PORT`, `MIM
 {
   "foreman": { "model": "openai/gpt-6.1-sol" },   // or "anthropic/<model>"
   "voice": { "model": "gpt-live-1", "voice": "marin" },
-  "projectRoots": ["~/repos"],                     // git repos in here are available for new tasks
+  "projectRoots": ["~/repos"],                     // git repos in here are available for new sessions
   "opencode": { "url": "http://127.0.0.1:4097", "manage": true }
 }
 ```
@@ -121,7 +120,7 @@ Mimir itself is free.
 ## Roadmap
 
 - [x] Foreman chat over OpenCode, Claude Code and Codex, including sessions you started yourself
-- [x] Approvals and live task status
+- [x] Approvals and live session status
 - [x] Full-duplex voice at the desk (GPT-Live, WebRTC)
 - [x] Trainer mode: glanceable screen with captions
 - [ ] Phone calls (SIP) and a screenless mode for outdoor rides and runs

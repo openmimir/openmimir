@@ -15,7 +15,7 @@ describe("Store", () => {
 });
 
 describe("Store migrations", () => {
-  test("v1 workers become v2 tasks and approvals follow", () => {
+  test("v1 workers migrate to sessions, approvals follow", () => {
     const path = `${require("node:os").tmpdir()}/mimir-migrate-${Date.now()}.db`;
     const { Database } = require("bun:sqlite");
     const db = new Database(path, { create: true });
@@ -46,8 +46,8 @@ describe("Store migrations", () => {
     db.close();
 
     const store = new Store(path);
-    expect(store.task("opencode:ses_1")?.title).toBe("Fix");
-    expect(store.pendingApprovals()[0]?.taskId).toBe("opencode:ses_1");
+    expect(store.session("opencode:ses_1")?.title).toBe("Fix");
+    expect(store.pendingApprovals()[0]?.sessionId).toBe("opencode:ses_1");
     store.close();
   });
 });

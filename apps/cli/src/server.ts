@@ -117,12 +117,13 @@ export function startServer(options: ServerOptions): Server<SocketData> {
         return json({ error: "decision must be approve, approve_always or reject" }, 400);
       }
       // Approving from a screen is always allowed, whatever the tier.
-      const result = await app.tasks.resolveApproval(approval[1] as string, body.decision);
+      const result = await app.sessions.resolveApproval(approval[1] as string, body.decision);
       return json(result);
     }
 
-    const stop = pathname.match(/^\/api\/tasks\/([^/]+)\/stop$/);
-    if (stop && method === "POST") return json(await app.tasks.stop(decodeURIComponent(stop[1] as string)));
+    const stop = pathname.match(/^\/api\/sessions\/([^/]+)\/stop$/);
+    if (stop && method === "POST")
+      return json(await app.sessions.stop(decodeURIComponent(stop[1] as string)));
 
     if (pathname === "/api/voice/session" && method === "POST") {
       if (!app.voice) return json({ error: "Voice needs an OpenAI API key. Run `mimir init`." }, 503);

@@ -7,8 +7,8 @@ import {
   type MimirConfig,
   mimirHome,
   ProjectIndex,
+  SessionManager,
   Store,
-  TaskManager,
 } from "@openmimir/core";
 import type { AgentKind, ForemanActivity, ServerInfo, Snapshot, VoiceState } from "@openmimir/protocol";
 import { type HistoryItem, LiveVoice } from "@openmimir/voice";
@@ -30,14 +30,21 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
   if (config.agents.claude && Bun.which("claude")) adapters.set("claude", new ClaudeCodeAdapter({ log }));
   if (config.agents.codex && Bun.which("codex")) adapters.set("codex", new CodexAdapter({ log }));
 
-  const tasks = new TaskManager(adapters, store, bus, log);
+  const sessions = new SessionManager(adapters, store, bus, log);
   const projects = new ProjectIndex(config.projectRoots, config.projects);
   const defaultAgent = adapters.has(config.agents.default) ? config.agents.default : "opencode";
 
   let foreman: Foreman | undefined;
   let foremanError: string | undefined;
   try {
-    foreman = new Foreman({ model: createForemanModel(config), store, bus, tasks, projects, defaultAgent });
+    foreman = new Foreman({
+      model: createForemanModel(config),
+      store,
+      bus,
+      sessions,
+      projects,
+      defaultAgent,
+    });
   } catch (error) {
     foremanError = error instanceof Error ? error.message : String(error);
     log(`[foreman] ${foremanError}`);
@@ -72,8 +79,8 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
       })
     : undefined;
 
-  tasks.onAnnouncement((announcement) => {
-    foreman?.notice(announcement.text, announcement.taskId);
+  sessions.onAnnouncement((announcement) => {
+    foreman?.notice(announcement.text, announcement.sessionId);
     // The foreman already says when it starts something; only speak what happens later.
     if (announcement.kind !== "started") voice?.announce(announcement.text);
   });
@@ -111,8 +118,8 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
     return {
       info: info(),
       messages: store.recentMessages(200),
-      tasks: tasks.list(),
-      approvals: tasks.pendingApprovals(),
+      sessions: sessions.list(),
+      approvals: sessions.pendingApprovals(),
       voice: voiceState,
       activity,
     };
@@ -131,7 +138,7 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
     config,
     bus,
     store,
-    tasks,
+    sessions,
     voice,
     opencode,
     info,
@@ -142,9 +149,9 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
     async start() {
       await Promise.all([...adapters.values()].map((adapter) => adapter.start()));
       await refreshHealth();
-      await tasks.refresh(true).catch(() => undefined);
+      await sessions.refresh(true).catch(() => undefined);
       timers.push(setInterval(() => void refreshHealth(), 10_000));
-      timers.push(setInterval(() => void tasks.refresh().catch(() => undefined), 30_000));
+      timers.push(setInterval(() => void sessions.refresh().catch(() => undefined), 30_000));
     },
     async stop() {
       for (const timer of timers) clearInterval(timer);

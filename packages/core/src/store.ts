@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Approval, ChatMessage, Task } from "@openmimir/protocol";
+import type { AgentSession, Approval, ChatMessage } from "@openmimir/protocol";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * Local persistence in a single SQLite file. Rows store JSON documents so the
@@ -38,6 +38,7 @@ export class Store {
       `);
     }
     if (current < 2) this.migrateWorkersToTasks();
+    if (current < 3) this.migrateTasksToSessions();
     this.db
       .query("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema', ?)")
       .run(String(SCHEMA_VERSION));
@@ -66,12 +67,12 @@ export class Store {
     const ids = new Map<string, string>();
     for (const row of workers) {
       const w = JSON.parse(row.doc) as Record<string, unknown>;
-      const task: Task = {
+      const task: AgentSession = {
         id: `opencode:${w.externalId}`,
         agent: "opencode",
         title: String(w.title),
         directory: String(w.directory),
-        status: w.status as Task["status"],
+        status: w.status as AgentSession["status"],
         externalId: String(w.externalId),
         origin: "mimir",
         tracked: true,
@@ -81,7 +82,9 @@ export class Store {
         updatedAt: Number(w.updatedAt),
       };
       ids.set(String(w.id), task.id);
-      this.saveTask(task);
+      this.db
+        .query("INSERT OR REPLACE INTO tasks (id, updated_at, doc) VALUES (?, ?, ?)")
+        .run(task.id, task.updatedAt, JSON.stringify(task));
     }
     const approvals = this.db.query("SELECT id, doc FROM approvals").all() as Array<{
       id: string;
@@ -96,22 +99,51 @@ export class Store {
     this.db.exec("DROP TABLE IF EXISTS workers");
   }
 
-  saveTask(task: Task) {
-    this.db
-      .query("INSERT OR REPLACE INTO tasks (id, updated_at, doc) VALUES (?, ?, ?)")
-      .run(task.id, task.updatedAt, JSON.stringify(task));
-  }
-
-  tasks(limit = 50): Task[] {
-    const rows = this.db.query("SELECT doc FROM tasks ORDER BY updated_at DESC LIMIT ?").all(limit) as Array<{
+  /** v3: "tasks" were renamed to "sessions", which is what every agent calls them. */
+  private migrateTasksToSessions() {
+    this.db.exec(`
+      ALTER TABLE tasks RENAME TO sessions;
+      DROP INDEX IF EXISTS tasks_updated;
+      CREATE INDEX IF NOT EXISTS sessions_updated ON sessions(updated_at);
+    `);
+    const approvals = this.db.query("SELECT id, doc FROM approvals").all() as Array<{
+      id: string;
       doc: string;
     }>;
-    return rows.map((row) => JSON.parse(row.doc) as Task);
+    for (const row of approvals) {
+      const { taskId, ...rest } = JSON.parse(row.doc) as Record<string, unknown>;
+      if (taskId === undefined) continue;
+      this.db
+        .query("UPDATE approvals SET doc = ? WHERE id = ?")
+        .run(JSON.stringify({ ...rest, sessionId: taskId }), row.id);
+    }
+    const messages = this.db
+      .query("SELECT id, doc FROM messages WHERE doc LIKE '%\"taskId\"%'")
+      .all() as Array<{ id: string; doc: string }>;
+    for (const row of messages) {
+      const { taskId, ...rest } = JSON.parse(row.doc) as Record<string, unknown>;
+      this.db
+        .query("UPDATE messages SET doc = ? WHERE id = ?")
+        .run(JSON.stringify({ ...rest, sessionId: taskId }), row.id);
+    }
   }
 
-  task(id: string): Task | undefined {
-    const row = this.db.query("SELECT doc FROM tasks WHERE id = ?").get(id) as { doc: string } | null;
-    return row ? (JSON.parse(row.doc) as Task) : undefined;
+  saveSession(session: AgentSession) {
+    this.db
+      .query("INSERT OR REPLACE INTO sessions (id, updated_at, doc) VALUES (?, ?, ?)")
+      .run(session.id, session.updatedAt, JSON.stringify(session));
+  }
+
+  sessions(limit = 50): AgentSession[] {
+    const rows = this.db
+      .query("SELECT doc FROM sessions ORDER BY updated_at DESC LIMIT ?")
+      .all(limit) as Array<{ doc: string }>;
+    return rows.map((row) => JSON.parse(row.doc) as AgentSession);
+  }
+
+  session(id: string): AgentSession | undefined {
+    const row = this.db.query("SELECT doc FROM sessions WHERE id = ?").get(id) as { doc: string } | null;
+    return row ? (JSON.parse(row.doc) as AgentSession) : undefined;
   }
 
   saveApproval(approval: Approval) {

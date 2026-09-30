@@ -2,12 +2,12 @@ import type { AdapterEvent, AgentAdapter, FileChange, SessionSummary } from "@op
 import {
   AGENT_LABELS,
   type AgentKind,
+  type AgentSession,
   type Approval,
   type ApprovalDecision,
   describeAction,
-  type Task,
-  type TaskStatus,
-  taskId,
+  type SessionStatus,
+  sessionKey,
 } from "@openmimir/protocol";
 import { type EventBus, newId } from "./bus.ts";
 import { classifyApproval, GUARDED_SHELL_COMMANDS } from "./policy.ts";
@@ -15,7 +15,7 @@ import type { Store } from "./store.ts";
 
 export interface Announcement {
   kind: "started" | "done" | "failed" | "approval" | "stopped";
-  taskId: string;
+  sessionId: string;
   /** Short, speakable summary. */
   text: string;
 }
@@ -28,15 +28,15 @@ const RECENT_PER_AGENT = 8;
 export const IN_USE_MS = 3 * 60_000;
 
 /**
- * Every coding-agent session is a task. Mimir tracks the ones it started or
+ * Every coding-agent session is a session. Mimir tracks the ones it started or
  * continued, and knows about recent sessions in every agent so the user can
  * pick up any of them without naming an agent or a session.
  */
-export class TaskManager {
+export class SessionManager {
   private readonly announcers = new Set<(a: Announcement) => void>();
   private readonly lastRejection = new Map<string, number>();
-  private recentCache: { at: number; tasks: Task[] } | undefined;
-  private refreshing: Promise<Task[]> | undefined;
+  private recentCache: { at: number; sessions: AgentSession[] } | undefined;
+  private refreshing: Promise<AgentSession[]> | undefined;
 
   constructor(
     private readonly adapters: Map<AgentKind, AgentAdapter>,
@@ -68,16 +68,16 @@ export class TaskManager {
     return adapter;
   }
 
-  /** Tracked tasks plus recent sessions from every agent, newest first. */
-  list(): Task[] {
-    const merged = new Map<string, Task>();
-    for (const task of this.recentCache?.tasks ?? []) merged.set(task.id, task);
-    for (const task of this.store.tasks(40)) merged.set(task.id, task);
+  /** Tracked sessions plus recent sessions from every agent, newest first. */
+  list(): AgentSession[] {
+    const merged = new Map<string, AgentSession>();
+    for (const session of this.recentCache?.sessions ?? []) merged.set(session.id, session);
+    for (const session of this.store.sessions(40)) merged.set(session.id, session);
     return [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  get(id: string): Task | undefined {
-    return this.store.task(id) ?? this.recentCache?.tasks.find((t) => t.id === id);
+  get(id: string): AgentSession | undefined {
+    return this.store.session(id) ?? this.recentCache?.sessions.find((t) => t.id === id);
   }
 
   pendingApprovals(): Approval[] {
@@ -85,7 +85,7 @@ export class TaskManager {
   }
 
   /** Refresh the list of recent sessions from all agents (cached briefly). */
-  async refresh(force = false): Promise<Task[]> {
+  async refresh(force = false): Promise<AgentSession[]> {
     if (!force && this.recentCache && Date.now() - this.recentCache.at < RECENT_TTL_MS) {
       return this.list();
     }
@@ -96,25 +96,25 @@ export class TaskManager {
             return (await adapter.listRecent(RECENT_PER_AGENT)).map((s) => this.fromSummary(adapter.kind, s));
           } catch (error) {
             this.log(
-              `[tasks] could not list ${adapter.kind} sessions: ${error instanceof Error ? error.message : error}`,
+              `[sessions] could not list ${adapter.kind} sessions: ${error instanceof Error ? error.message : error}`,
             );
             return [];
           }
         }),
       );
-      this.recentCache = { at: Date.now(), tasks: results.flat() };
-      const tasks = this.list();
-      this.bus.publish({ type: "tasks.replace", tasks });
-      return tasks;
+      this.recentCache = { at: Date.now(), sessions: results.flat() };
+      const sessions = this.list();
+      this.bus.publish({ type: "sessions.replace", sessions });
+      return sessions;
     })().finally(() => {
       this.refreshing = undefined;
     });
     return this.refreshing;
   }
 
-  private fromSummary(agent: AgentKind, s: SessionSummary): Task {
-    const id = taskId(agent, s.externalId);
-    const tracked = this.store.task(id);
+  private fromSummary(agent: AgentKind, s: SessionSummary): AgentSession {
+    const id = sessionKey(agent, s.externalId);
+    const tracked = this.store.session(id);
     if (tracked) {
       // Keep Mimir's own state, but take fresher details from the agent.
       return { ...tracked, lastText: s.lastText?.slice(-TEXT_PREVIEW) ?? tracked.lastText };
@@ -134,10 +134,10 @@ export class TaskManager {
     };
   }
 
-  private save(task: Task, patch: Partial<Task> = {}): Task {
-    const next = { ...task, ...patch, updatedAt: Date.now() };
-    this.store.saveTask(next);
-    this.bus.publish({ type: "task.upsert", task: next });
+  private save(session: AgentSession, patch: Partial<AgentSession> = {}): AgentSession {
+    const next = { ...session, ...patch, updatedAt: Date.now() };
+    this.store.saveSession(next);
+    this.bus.publish({ type: "session.upsert", session: next });
     return next;
   }
 
@@ -146,7 +146,7 @@ export class TaskManager {
     directory: string;
     title: string;
     instructions: string;
-  }): Promise<Task> {
+  }): Promise<AgentSession> {
     const { externalId } = await this.adapter(input.agent).createSession({
       directory: input.directory,
       title: input.title,
@@ -154,8 +154,8 @@ export class TaskManager {
       guardedCommands: GUARDED_SHELL_COMMANDS,
     });
     const now = Date.now();
-    const task = this.save({
-      id: taskId(input.agent, externalId),
+    const session = this.save({
+      id: sessionKey(input.agent, externalId),
       agent: input.agent,
       title: input.title,
       directory: input.directory,
@@ -166,44 +166,44 @@ export class TaskManager {
       createdAt: now,
       updatedAt: now,
     });
-    this.announce({ kind: "started", taskId: task.id, text: `Started "${task.title}".` });
-    return task;
+    this.announce({ kind: "started", sessionId: session.id, text: `Started "${session.title}".` });
+    return session;
   }
 
-  /** Send a message to any task, including sessions started outside Mimir. */
-  async message(id: string, text: string): Promise<Task> {
-    const task = this.require(id);
-    await this.adapter(task.agent).prompt(task, text, GUARDED_SHELL_COMMANDS);
-    return this.save(task, { status: "working", error: undefined, tracked: true });
+  /** Send a message to any session, including sessions started outside Mimir. */
+  async message(id: string, text: string): Promise<AgentSession> {
+    const session = this.require(id);
+    await this.adapter(session.agent).prompt(session, text, GUARDED_SHELL_COMMANDS);
+    return this.save(session, { status: "working", error: undefined, tracked: true });
   }
 
-  async stop(id: string): Promise<Task> {
-    const task = this.require(id);
-    await this.adapter(task.agent).interrupt(task.externalId);
-    return this.save(task, { status: "idle" });
+  async stop(id: string): Promise<AgentSession> {
+    const session = this.require(id);
+    await this.adapter(session.agent).interrupt(session.externalId);
+    return this.save(session, { status: "idle" });
   }
 
   async latestText(id: string): Promise<string | undefined> {
-    const task = this.require(id);
+    const session = this.require(id);
     return (
-      (await this.adapter(task.agent)
-        .lastAssistantText(task)
-        .catch(() => undefined)) ?? task.lastText
+      (await this.adapter(session.agent)
+        .lastAssistantText(session)
+        .catch(() => undefined)) ?? session.lastText
     );
   }
 
   async changes(id: string): Promise<FileChange[]> {
-    const task = this.require(id);
-    return this.adapter(task.agent).diff(task);
+    const session = this.require(id);
+    return this.adapter(session.agent).diff(session);
   }
 
   async resolveApproval(id: string, decision: ApprovalDecision): Promise<Approval> {
     const approval = this.store.approval(id);
     if (!approval) throw new Error(`No approval with id ${id}`);
     if (approval.status !== "pending") return approval;
-    const task = this.require(approval.taskId);
-    await this.adapter(task.agent).replyPermission(
-      task.externalId,
+    const session = this.require(approval.sessionId);
+    await this.adapter(session.agent).replyPermission(
+      session.externalId,
       approval.externalId,
       decision === "approve" ? "once" : decision === "approve_always" ? "always" : "reject",
     );
@@ -214,63 +214,64 @@ export class TaskManager {
     };
     this.store.saveApproval(next);
     this.bus.publish({ type: "approval.upsert", approval: next });
-    if (decision === "reject") this.lastRejection.set(task.id, Date.now());
-    if (!this.hasPending(task.id) && task.status === "needs_you") this.save(task, { status: "working" });
+    if (decision === "reject") this.lastRejection.set(session.id, Date.now());
+    if (!this.hasPending(session.id) && session.status === "needs_you")
+      this.save(session, { status: "working" });
     return next;
   }
 
-  private require(id: string): Task {
-    const task = this.get(id);
-    if (!task) throw new Error(`No task with id ${id}. Use recent_tasks to see what exists.`);
-    return task;
+  private require(id: string): AgentSession {
+    const session = this.get(id);
+    if (!session) throw new Error(`No session with id ${id}. Use recent_sessions to see what exists.`);
+    return session;
   }
 
   private hasPending(id: string) {
-    return this.store.pendingApprovals().some((a) => a.taskId === id);
+    return this.store.pendingApprovals().some((a) => a.sessionId === id);
   }
 
   private handle(agent: AgentKind, event: AdapterEvent) {
-    const task = this.store.task(taskId(agent, event.externalId));
+    const session = this.store.session(sessionKey(agent, event.externalId));
     // Sessions Mimir never touched are only shown, not narrated.
-    if (!task) return;
+    if (!session) return;
     switch (event.type) {
       case "started":
-        this.save(task, { status: "working", error: undefined });
+        this.save(session, { status: "working", error: undefined });
         break;
       case "text":
-        this.save(task, { lastText: event.text.slice(-TEXT_PREVIEW) });
+        this.save(session, { lastText: event.text.slice(-TEXT_PREVIEW) });
         break;
       case "succeeded": {
-        const next = this.save(task, { status: this.hasPending(task.id) ? "needs_you" : "done" });
+        const next = this.save(session, { status: this.hasPending(session.id) ? "needs_you" : "done" });
         this.announce({
           kind: "done",
-          taskId: task.id,
-          text: `"${task.title}" is done. ${summarize(next.lastText)}`,
+          sessionId: session.id,
+          text: `"${session.title}" is done. ${summarize(next.lastText)}`,
         });
         break;
       }
       case "failed":
-        this.save(task, { status: "failed", error: event.error });
+        this.save(session, { status: "failed", error: event.error });
         this.announce({
           kind: "failed",
-          taskId: task.id,
-          text: `"${task.title}" failed: ${event.error.slice(0, 200)}`,
+          sessionId: session.id,
+          text: `"${session.title}" failed: ${event.error.slice(0, 200)}`,
         });
         break;
       case "interrupted": {
-        this.save(task, { status: "idle" });
-        const rejectedAt = this.lastRejection.get(task.id) ?? 0;
+        this.save(session, { status: "idle" });
+        const rejectedAt = this.lastRejection.get(session.id) ?? 0;
         if (Date.now() - rejectedAt < 60_000) {
           this.announce({
             kind: "stopped",
-            taskId: task.id,
-            text: `"${task.title}" stopped after its request was rejected.`,
+            sessionId: session.id,
+            text: `"${session.title}" stopped after its request was rejected.`,
           });
         } else if (event.reason !== "user") {
           this.announce({
             kind: "stopped",
-            taskId: task.id,
-            text: `"${task.title}" stopped (${event.reason}).`,
+            sessionId: session.id,
+            text: `"${session.title}" stopped (${event.reason}).`,
           });
         }
         break;
@@ -279,7 +280,7 @@ export class TaskManager {
         const tier = classifyApproval(event.action, event.resources);
         const approval: Approval = {
           id: newId("apr"),
-          taskId: task.id,
+          sessionId: session.id,
           externalId: event.requestId,
           action: event.action,
           resources: event.resources,
@@ -290,22 +291,22 @@ export class TaskManager {
         };
         this.store.saveApproval(approval);
         this.bus.publish({ type: "approval.upsert", approval });
-        this.save(task, { status: "needs_you" });
+        this.save(session, { status: "needs_you" });
         const what = describeAction(event.action, event.resources);
         this.announce({
           kind: "approval",
-          taskId: task.id,
+          sessionId: session.id,
           text:
             tier === "screen"
-              ? `"${task.title}" wants to ${what}. That needs approval on a screen.`
-              : `"${task.title}" asks permission to ${what}. The user can approve or reject by voice.`,
+              ? `"${session.title}" wants to ${what}. That needs approval on a screen.`
+              : `"${session.title}" asks permission to ${what}. The user can approve or reject by voice.`,
         });
         break;
       }
       case "permission.replied": {
         const approval = this.store
           .pendingApprovals()
-          .find((a) => a.taskId === task.id && a.externalId === event.requestId);
+          .find((a) => a.sessionId === session.id && a.externalId === event.requestId);
         if (approval) {
           const next: Approval = {
             ...approval,
@@ -314,8 +315,8 @@ export class TaskManager {
           };
           this.store.saveApproval(next);
           this.bus.publish({ type: "approval.upsert", approval: next });
-          if (!this.hasPending(task.id) && task.status === "needs_you")
-            this.save(task, { status: "working" });
+          if (!this.hasPending(session.id) && session.status === "needs_you")
+            this.save(session, { status: "working" });
         }
         break;
       }
@@ -333,7 +334,7 @@ function summarize(text: string | undefined): string {
   return clean.length > 300 ? `${clean.slice(0, 300)}…` : clean;
 }
 
-export function statusLabel(status: TaskStatus): string {
+export function statusLabel(status: SessionStatus): string {
   return { working: "working", needs_you: "needs you", done: "done", failed: "failed", idle: "idle" }[status];
 }
 

@@ -1,12 +1,13 @@
-import type { ChatMessage, ForemanActivity, Task } from "@openmimir/protocol";
+import type { AgentSession, ChatMessage, ForemanActivity } from "@openmimir/protocol";
 import { ArrowUp, Mic, Radio } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { TaskLine } from "./TaskCard";
+import { SessionLine } from "./SessionCard";
 
-function Message({ message, task }: { message: ChatMessage; task?: Task }) {
-  if (message.role === "notice" && message.taskId) return <TaskLine task={task} text={message.text} />;
+function Message({ message, session }: { message: ChatMessage; session?: AgentSession }) {
+  if (message.role === "notice" && message.sessionId)
+    return <SessionLine session={session} text={message.text} />;
   if (message.role === "notice") {
     return (
       <div className="flex gap-2 border-l-2 border-accent-dim py-0.5 pl-3 text-sm text-well-400">
@@ -41,14 +42,14 @@ function Message({ message, task }: { message: ChatMessage; task?: Task }) {
 
 export function Chat({
   messages,
-  tasks,
+  sessions,
   activity,
   onSend,
   voiceButton,
   aboveComposer,
 }: {
   messages: ChatMessage[];
-  tasks: Map<string, Task>;
+  sessions: Map<string, AgentSession>;
   activity: ForemanActivity;
   onSend: (text: string) => Promise<unknown>;
   voiceButton: React.ReactNode;
@@ -116,7 +117,7 @@ export function Chat({
             <Message
               key={message.id}
               message={message}
-              task={message.taskId ? tasks.get(message.taskId) : undefined}
+              session={message.sessionId ? sessions.get(message.sessionId) : undefined}
             />
           ))}
           {activity.busy && activity.label && activity.label !== "Thinking" && (

@@ -28,7 +28,7 @@ export interface MimirConfig {
     anthropic?: string;
   };
   agents: {
-    /** Agent for new tasks unless the user asks for another one. */
+    /** Agent for new sessions unless the user asks for another one. */
     default: "opencode" | "claude" | "codex";
     /** Claude Code and Codex are used when installed, unless turned off here. */
     claude: boolean;

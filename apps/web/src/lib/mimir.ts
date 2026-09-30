@@ -1,11 +1,11 @@
 import type {
+  AgentSession,
   Approval,
   ApprovalDecision,
   Caption,
   ChatMessage,
   ServerEvent,
   Snapshot,
-  Task,
 } from "@openmimir/protocol";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
@@ -40,12 +40,14 @@ function reducer(state: MimirState, action: Action): MimirState {
         ...state,
         snapshot: { ...snapshot, messages: upsert<ChatMessage>(snapshot.messages, event.message) },
       };
-    case "task.upsert": {
-      const tasks = upsert<Task>(snapshot.tasks, event.task).sort((a, b) => b.updatedAt - a.updatedAt);
-      return { ...state, snapshot: { ...snapshot, tasks } };
+    case "session.upsert": {
+      const sessions = upsert<AgentSession>(snapshot.sessions, event.session).sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      );
+      return { ...state, snapshot: { ...snapshot, sessions } };
     }
-    case "tasks.replace":
-      return { ...state, snapshot: { ...snapshot, tasks: event.tasks } };
+    case "sessions.replace":
+      return { ...state, snapshot: { ...snapshot, sessions: event.sessions } };
     case "approval.upsert": {
       const approvals = upsert<Approval>(snapshot.approvals, event.approval).filter(
         (a) => a.status === "pending",
@@ -150,10 +152,17 @@ export function useMimir() {
     (id: string, decision: ApprovalDecision) => request(`/api/approvals/${id}`, { decision }),
     [request],
   );
-  const stopTask = useCallback(
-    (id: string) => request(`/api/tasks/${encodeURIComponent(id)}/stop`, {}),
+  const stopSession = useCallback(
+    (id: string) => request(`/api/sessions/${encodeURIComponent(id)}/stop`, {}),
     [request],
   );
 
-  return { ...state, connection, api: { token, request } as MimirApi, sendChat, resolveApproval, stopTask };
+  return {
+    ...state,
+    connection,
+    api: { token, request } as MimirApi,
+    sendChat,
+    resolveApproval,
+    stopSession,
+  };
 }

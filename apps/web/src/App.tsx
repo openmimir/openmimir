@@ -1,11 +1,11 @@
-import { AGENT_LABELS, type Snapshot, type Task } from "@openmimir/protocol";
+import { AGENT_LABELS, type AgentSession, type Snapshot } from "@openmimir/protocol";
 import { Bike, ListTodo, Mic, MicOff, Monitor, PhoneOff, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { Chat } from "./components/Chat";
 import { Logo } from "./components/Logo";
 import { Orb, type OrbMode } from "./components/Orb";
-import { TaskCard } from "./components/TaskCard";
+import { SessionCard } from "./components/SessionCard";
 import { formatDuration } from "./lib/format";
 import { useMimir } from "./lib/mimir";
 import { useVoice } from "./lib/voice";
@@ -43,12 +43,12 @@ const ORB_LABEL: Record<OrbMode, string> = {
   error: "Voice error",
 };
 
-const isActive = (t: Task) => t.status === "working" || t.status === "needs_you";
+const isActive = (t: AgentSession) => t.status === "working" || t.status === "needs_you";
 
-/** Active tasks first, then the ones Mimir touched, then everything else. */
-function ordered(tasks: Task[]): Task[] {
-  const rank = (t: Task) => (isActive(t) ? 0 : t.tracked ? 1 : 2);
-  return [...tasks].sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
+/** Active sessions first, then the ones Mimir touched, then everything else. */
+function ordered(sessions: AgentSession[]): AgentSession[] {
+  const rank = (t: AgentSession) => (isActive(t) ? 0 : t.tracked ? 1 : 2);
+  return [...sessions].sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
 }
 
 export function App() {
@@ -84,7 +84,10 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleVoice]);
 
-  const tasksById = useMemo(() => new Map((snapshot?.tasks ?? []).map((t) => [t.id, t])), [snapshot?.tasks]);
+  const sessionsById = useMemo(
+    () => new Map((snapshot?.sessions ?? []).map((t) => [t.id, t])),
+    [snapshot?.sessions],
+  );
 
   if (mimir.connection === "unpaired") {
     return (
@@ -111,22 +114,22 @@ export function App() {
 
   const orb = orbMode(snapshot, voice.status);
   const seconds = snapshot.voice.seconds ?? 0;
-  const tasks = ordered(snapshot.tasks);
-  const activeCount = snapshot.tasks.filter(isActive).length;
+  const sessions = ordered(snapshot.sessions);
+  const activeCount = snapshot.sessions.filter(isActive).length;
 
   const approvals = snapshot.approvals.map((approval) => (
     <ApprovalCard
       key={approval.id}
       big={mode === "trainer"}
       approval={approval}
-      task={tasksById.get(approval.taskId)}
+      session={sessionsById.get(approval.sessionId)}
       onResolve={mimir.resolveApproval}
     />
   ));
 
   if (mode === "trainer") {
     // Glanceable: what is running or waiting, then what Mimir touched recently.
-    const shown = tasks.filter((t) => isActive(t) || t.tracked).slice(0, 6);
+    const shown = sessions.filter((t) => isActive(t) || t.tracked).slice(0, 6);
     return (
       <div className="flex h-full flex-col gap-4 p-4 sm:p-6">
         <header className="flex items-center gap-4">
@@ -171,8 +174,8 @@ export function App() {
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {shown.map((task) => (
-                  <TaskCard key={task.id} task={task} big />
+                {shown.map((session) => (
+                  <SessionCard key={session.id} session={session} big />
                 ))}
               </div>
             )}
@@ -259,9 +262,9 @@ export function App() {
           className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition ${
             panel ? "border-accent-dim text-accent" : "border-well-700 text-well-400 hover:text-well-50"
           }`}
-          title="Show tasks"
+          title="Show sessions"
         >
-          <ListTodo size={14} /> Tasks
+          <ListTodo size={14} /> Sessions
           {activeCount > 0 && (
             <span className="rounded-full bg-working px-1.5 font-semibold text-well-950">{activeCount}</span>
           )}
@@ -283,7 +286,7 @@ export function App() {
         <main className="min-w-0 flex-1">
           <Chat
             messages={snapshot.messages}
-            tasks={tasksById}
+            sessions={sessionsById}
             activity={snapshot.activity}
             onSend={mimir.sendChat}
             voiceButton={voiceButton}
@@ -297,7 +300,7 @@ export function App() {
           <aside className="scroll-thin flex w-80 shrink-0 flex-col gap-2 overflow-y-auto border-l border-well-800 bg-well-900/60 p-4">
             <div className="flex items-center justify-between">
               <h2 className="text-[11px] font-semibold uppercase tracking-wider text-well-500">
-                Recent tasks, all agents
+                Recent sessions, all agents
               </h2>
               <button
                 type="button"
@@ -307,9 +310,9 @@ export function App() {
                 <X size={14} />
               </button>
             </div>
-            {tasks.length === 0 && <p className="text-sm text-well-500">Nothing yet.</p>}
-            {tasks.slice(0, 20).map((task) => (
-              <TaskCard key={task.id} task={task} onStop={(id) => void mimir.stopTask(id)} />
+            {sessions.length === 0 && <p className="text-sm text-well-500">Nothing yet.</p>}
+            {sessions.slice(0, 20).map((session) => (
+              <SessionCard key={session.id} session={session} onStop={(id) => void mimir.stopSession(id)} />
             ))}
             <footer className="mt-auto flex flex-col gap-1 border-t border-well-800 pt-3 text-[11px] text-well-500">
               <StatusLine

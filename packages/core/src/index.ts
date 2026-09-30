@@ -13,5 +13,5 @@ export { Foreman, type ForemanDeps, type ForemanRequest } from "./foreman.ts";
 export { createForemanModel } from "./model.ts";
 export { canApprove, classifyApproval, GUARDED_SHELL_COMMANDS } from "./policy.ts";
 export { ProjectIndex } from "./projects.ts";
+export { type Announcement, ago, IN_USE_MS, SessionManager, statusLabel } from "./sessions.ts";
 export { Store } from "./store.ts";
-export { type Announcement, ago, IN_USE_MS, statusLabel, TaskManager } from "./tasks.ts";

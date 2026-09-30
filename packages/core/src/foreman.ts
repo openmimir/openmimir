@@ -4,8 +4,8 @@ import { z } from "zod";
 import { type EventBus, newId } from "./bus.ts";
 import { canApprove } from "./policy.ts";
 import type { ProjectIndex } from "./projects.ts";
+import { ago, IN_USE_MS, type SessionManager, statusLabel } from "./sessions.ts";
 import type { Store } from "./store.ts";
-import { ago, IN_USE_MS, statusLabel, type TaskManager } from "./tasks.ts";
 
 export interface ForemanRequest {
   text: string;
@@ -18,32 +18,32 @@ export interface ForemanDeps {
   model: LanguageModel;
   store: Store;
   bus: EventBus;
-  tasks: TaskManager;
+  sessions: SessionManager;
   projects: ProjectIndex;
-  /** Agent used for new tasks unless the user asks for another one. */
+  /** Agent used for new sessions unless the user asks for another one. */
   defaultAgent: AgentKind;
 }
 
 const HISTORY_LIMIT = 40;
 
-const BASE_PROMPT = `You are Mimir, the user's single point of contact for all their coding agents (OpenCode, Claude Code, Codex). The user talks to you in one ongoing conversation, by keyboard or by voice, often while away from their desk (riding an indoor bike, running, walking). You do not write code yourself: coding agents do the work, and you run them.
+const BASE_PROMPT = `You are Mimir, the master thread above all of the user's coding-agent sessions (OpenCode, Claude Code, Codex). The user talks to you in one ongoing conversation, by keyboard or by voice, often while away from their desk (riding an indoor bike, running, walking). You do not write code yourself: agent sessions do the work, and you steer them, collect their results and tell the user what matters.
 
-Every agent session is a task. You can see the user's recent sessions in every agent, including ones they started themselves at their desk, and you can continue any of them. The user should never have to name an agent, a session or an id. Work out what they mean from context:
-- "How's the refactor going?" or "continue where I left off in reachkit" refers to an existing task. Match by project and topic, most recent first.
-- A request for new, unrelated work gets a new task.
-- If it is genuinely ambiguous between two tasks, ask one short question naming them by title.
-- Never mention internal ids, and do not call things "workers" or "sessions". Use task titles and project names.
+You can see the user's recent sessions in every agent, including ones they started themselves at their desk, and you can continue any of them. The user should never have to name an agent, a session or an id. Work out what they mean from context:
+- "How's the refactor going?" or "continue where I left off in reachkit" refers to an existing session. Match by project and topic, most recent first.
+- A request for new, unrelated work gets a new session.
+- If it is genuinely ambiguous between two sessions, ask one short question naming them by title.
+- Never mention internal ids. Refer to sessions by their title and project.
 
 How you work:
-- New task instructions must be self-contained: the agent cannot see this conversation. Include the goal, context, constraints and what "done" means.
-- Follow-ups on existing work go to that task with message_task, so the agent keeps its context.
-- Tasks the user touched in the last few minutes outside Mimir may be open on their screen. message_task will say so; then ask the user before sending.
-- For progress questions, check with task_status or task_changes instead of guessing.
+- New session instructions must be self-contained: the agent cannot see this conversation. Include the goal, context, constraints and what "done" means.
+- Follow-ups on existing work go to that session with message_session, so the agent keeps its context.
+- Sessions the user touched in the last few minutes outside Mimir may be open on their screen. message_session will say so; then ask the user before sending.
+- For progress questions, check with session_status or session_changes instead of guessing.
 - Never claim something is done, merged, pushed or fixed unless a tool result says so.
 - Keep answers short and concrete. Lead with the answer.
 
 Approvals:
-- Tasks sometimes pause to ask permission. Pending approvals are listed below.
+- Sessions sometimes pause to ask permission. Pending approvals are listed below.
 - "confirm" tier may be approved over voice, but only after you read the action back and the user explicitly says "confirm". "screen" tier can only be approved on a screen; tell the user it will wait for them.
 - Rejecting is always allowed.`;
 
@@ -65,14 +65,14 @@ export class Foreman {
     return run;
   }
 
-  /** Record something that happened without asking the model, e.g. a task finishing. */
-  notice(text: string, taskId?: string): ChatMessage {
+  /** Record something that happened without asking the model, e.g. a session finishing. */
+  notice(text: string, sessionId?: string): ChatMessage {
     const message: ChatMessage = {
       id: newId("msg"),
       role: "notice",
       source: "system",
       text,
-      taskId,
+      sessionId,
       createdAt: Date.now(),
     };
     this.deps.store.saveMessage(message);
@@ -81,13 +81,13 @@ export class Foreman {
   }
 
   private stateSummary(): string {
-    const tasks = this.deps.tasks.list().slice(0, 24);
-    const approvals = this.deps.tasks.pendingApprovals();
+    const sessions = this.deps.sessions.list().slice(0, 24);
+    const approvals = this.deps.sessions.pendingApprovals();
     const projects = this.deps.projects.list();
     const lines: string[] = [];
     lines.push(`Current time: ${new Date().toISOString()}`);
     lines.push(
-      `Available agents: ${this.deps.tasks.agents.map((a) => AGENT_LABELS[a]).join(", ")}. Default for new tasks: ${AGENT_LABELS[this.deps.defaultAgent]}.`,
+      `Available agents: ${this.deps.sessions.agents.map((a) => AGENT_LABELS[a]).join(", ")}. Default for new sessions: ${AGENT_LABELS[this.deps.defaultAgent]}.`,
     );
     lines.push(
       `Known projects (${projects.length}): ${
@@ -97,11 +97,11 @@ export class Foreman {
           .join(", ") || "none found"
       }`,
     );
-    if (tasks.length === 0) {
-      lines.push("Tasks: none yet.");
+    if (sessions.length === 0) {
+      lines.push("Sessions: none yet.");
     } else {
-      lines.push("Recent tasks across all agents (newest first):");
-      for (const t of tasks) {
+      lines.push("Recent sessions across all agents (newest first):");
+      for (const t of sessions) {
         const project = t.directory.split("/").filter(Boolean).pop();
         const who =
           t.origin === "mimir" ? "started by you" : t.tracked ? "continued by you" : "started by the user";
@@ -115,9 +115,9 @@ export class Foreman {
     } else {
       lines.push("Pending approvals:");
       for (const a of approvals) {
-        const task = this.deps.tasks.get(a.taskId);
+        const session = this.deps.sessions.get(a.sessionId);
         lines.push(
-          `- [${a.id}] "${task?.title ?? a.taskId}" wants: ${a.action} ${a.resources.slice(0, 3).join(", ")} [tier: ${a.tier}]${a.message ? ` - ${a.message.slice(0, 160)}` : ""}`,
+          `- [${a.id}] "${session?.title ?? a.sessionId}" wants: ${a.action} ${a.resources.slice(0, 3).join(", ")} [tier: ${a.tier}]${a.message ? ` - ${a.message.slice(0, 160)}` : ""}`,
         );
       }
     }
@@ -141,23 +141,23 @@ export class Foreman {
   }
 
   private tools(source: ForemanRequest["source"], progress: (label: string) => void) {
-    const { tasks, projects, defaultAgent } = this.deps;
+    const { sessions, projects, defaultAgent } = this.deps;
     return {
       list_projects: tool({
-        description: "List the git repositories new tasks can be started in.",
+        description: "List the git repositories new sessions can be started in.",
         inputSchema: z.object({}),
         execute: async () => projects.list(),
       }),
-      recent_tasks: tool({
+      recent_sessions: tool({
         description:
-          "Recent tasks across all agents, including sessions the user started at their desk, with what each one said last. Use it to find the task the user is referring to.",
+          "Recent sessions across all agents, including sessions the user started at their desk, with what each one said last. Use it to find the session the user is referring to.",
         inputSchema: z.object({
-          project: z.string().optional().describe("Only tasks in this project."),
+          project: z.string().optional().describe("Only sessions in this project."),
           limit: z.number().int().min(1).max(30).default(12),
         }),
         execute: async ({ project, limit }) => {
-          progress("Looking at recent tasks");
-          const all = await tasks.refresh(true);
+          progress("Looking at recent sessions");
+          const all = await sessions.refresh(true);
           const wanted = project?.toLowerCase().replace(/[^a-z0-9]/g, "");
           return all
             .filter(
@@ -180,8 +180,8 @@ export class Foreman {
             }));
         },
       }),
-      start_task: tool({
-        description: "Start a new task: a fresh agent session in a project, with its first instructions.",
+      start_session: tool({
+        description: "Start a new session: a fresh agent session in a project, with its first instructions.",
         inputSchema: z.object({
           project: z.string().describe("Project name from the known projects, or an absolute path."),
           title: z.string().describe("Short title, 2-6 words, e.g. 'Fix flaky auth tests'."),
@@ -192,69 +192,75 @@ export class Foreman {
           const ref = projects.resolve(project);
           if (!ref) return { error: `No project matches "${project}". Call list_projects to see options.` };
           const chosen = agent ?? defaultAgent;
-          if (!tasks.agents.includes(chosen)) return { error: `${AGENT_LABELS[chosen]} is not available.` };
-          progress(`Starting a task in ${ref.name}`);
-          const task = await tasks.start({ agent: chosen, directory: ref.directory, title, instructions });
+          if (!sessions.agents.includes(chosen))
+            return { error: `${AGENT_LABELS[chosen]} is not available.` };
+          progress(`Starting a session in ${ref.name}`);
+          const session = await sessions.start({
+            agent: chosen,
+            directory: ref.directory,
+            title,
+            instructions,
+          });
           return {
-            taskId: task.id,
+            sessionId: session.id,
             project: ref.name,
             agent: AGENT_LABELS[chosen],
-            status: statusLabel(task.status),
+            status: statusLabel(session.status),
           };
         },
       }),
-      message_task: tool({
+      message_session: tool({
         description:
-          "Send a follow-up instruction or answer to an existing task, whoever started it. The agent keeps its own context.",
+          "Send a follow-up instruction or answer to an existing session, whoever started it. The agent keeps its own context.",
         inputSchema: z.object({
-          task_id: z.string(),
+          session_id: z.string(),
           text: z.string(),
           user_confirmed: z
             .boolean()
             .default(false)
-            .describe("Set after the user agreed to message a task that may be open on their screen."),
+            .describe("Set after the user agreed to message a session that may be open on their screen."),
         }),
-        execute: async ({ task_id, text, user_confirmed }) => {
-          const task = tasks.get(task_id);
-          if (!task) return { error: `No task ${task_id}. Call recent_tasks.` };
-          if (!task.tracked && Date.now() - task.updatedAt < IN_USE_MS && !user_confirmed) {
+        execute: async ({ session_id, text, user_confirmed }) => {
+          const session = sessions.get(session_id);
+          if (!session) return { error: `No session ${session_id}. Call recent_sessions.` };
+          if (!session.tracked && Date.now() - session.updatedAt < IN_USE_MS && !user_confirmed) {
             return {
               needsConfirmation: true,
-              reason: `"${task.title}" was active ${ago(task.updatedAt)} outside Mimir and may be open on the user's screen. Ask before sending to it.`,
+              reason: `"${session.title}" was active ${ago(session.updatedAt)} outside Mimir and may be open on the user's screen. Ask before sending to it.`,
             };
           }
-          progress(`Messaging "${task.title}"`);
-          const next = await tasks.message(task_id, text);
-          return { taskId: next.id, status: statusLabel(next.status) };
+          progress(`Messaging "${session.title}"`);
+          const next = await sessions.message(session_id, text);
+          return { sessionId: next.id, status: statusLabel(next.status) };
         },
       }),
-      task_status: tool({
-        description: "Get a task's status and the latest thing its agent said.",
-        inputSchema: z.object({ task_id: z.string() }),
-        execute: async ({ task_id }) => {
-          progress("Checking on a task");
-          const task = tasks.get(task_id);
-          if (!task) return { error: `No task ${task_id}` };
-          const latest = await tasks.latestText(task_id).catch(() => task.lastText);
+      session_status: tool({
+        description: "Get a session's status and the latest thing its agent said.",
+        inputSchema: z.object({ session_id: z.string() }),
+        execute: async ({ session_id }) => {
+          progress("Checking on a session");
+          const session = sessions.get(session_id);
+          if (!session) return { error: `No session ${session_id}` };
+          const latest = await sessions.latestText(session_id).catch(() => session.lastText);
           return {
-            title: task.title,
-            agent: AGENT_LABELS[task.agent],
-            status: statusLabel(task.status),
-            lastActive: ago(task.updatedAt),
-            error: task.error,
+            title: session.title,
+            agent: AGENT_LABELS[session.agent],
+            status: statusLabel(session.status),
+            lastActive: ago(session.updatedAt),
+            error: session.error,
             latest: latest?.slice(-3000),
           };
         },
       }),
-      task_changes: tool({
-        description: "List the files a task changed, with a short diff preview.",
+      session_changes: tool({
+        description: "List the files a session changed, with a short diff preview.",
         inputSchema: z.object({
-          task_id: z.string(),
+          session_id: z.string(),
           include_patch: z.boolean().default(false).describe("Include patch text (truncated)."),
         }),
-        execute: async ({ task_id, include_patch }) => {
+        execute: async ({ session_id, include_patch }) => {
           progress("Looking at changes");
-          const changes = await tasks.changes(task_id);
+          const changes = await sessions.changes(session_id);
           return changes.slice(0, 40).map((c) => ({
             file: c.file,
             status: c.status,
@@ -264,13 +270,13 @@ export class Foreman {
           }));
         },
       }),
-      stop_task: tool({
-        description: "Interrupt a task that is currently running.",
-        inputSchema: z.object({ task_id: z.string() }),
-        execute: async ({ task_id }) => {
-          progress("Stopping a task");
-          const task = await tasks.stop(task_id);
-          return { taskId: task.id, status: statusLabel(task.status) };
+      stop_session: tool({
+        description: "Interrupt a session that is currently running.",
+        inputSchema: z.object({ session_id: z.string() }),
+        execute: async ({ session_id }) => {
+          progress("Stopping a session");
+          const session = await sessions.stop(session_id);
+          return { sessionId: session.id, status: statusLabel(session.status) };
         },
       }),
       resolve_approval: tool({
@@ -282,14 +288,14 @@ export class Foreman {
           user_confirmed: z.boolean().default(false),
         }),
         execute: async ({ approval_id, decision, user_confirmed }) => {
-          const approval = tasks.pendingApprovals().find((a) => a.id === approval_id);
+          const approval = sessions.pendingApprovals().find((a) => a.id === approval_id);
           if (!approval) return { error: `No pending approval ${approval_id}` };
           if (decision === "approve") {
             const check = canApprove(approval.tier, source, user_confirmed);
             if (!check.allowed) return { refused: true, reason: check.reason };
           }
           progress(decision === "approve" ? "Approving" : "Rejecting");
-          const result = await tasks.resolveApproval(approval_id, decision);
+          const result = await sessions.resolveApproval(approval_id, decision);
           return { approvalId: result.id, status: result.status };
         },
       }),
@@ -298,7 +304,7 @@ export class Foreman {
 
   private async run(request: ForemanRequest): Promise<ChatMessage> {
     const { store, bus } = this.deps;
-    await this.deps.tasks.refresh().catch(() => undefined);
+    await this.deps.sessions.refresh().catch(() => undefined);
     const userMessage: ChatMessage = {
       id: newId("msg"),
       role: "user",

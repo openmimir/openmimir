@@ -1,11 +1,11 @@
 {
-  // openmimir.com: static files only (the page and install.sh), served by Cloudflare.
+  // openmimir.com: static files built into dist/ by build.ts, served by Cloudflare.
   "$schema": "https://unpkg.com/wrangler/config-schema.json",
   "name": "openmimir-site",
   "compatibility_date": "2026-09-30",
   "account_id": "1babf61e7bbe2d09e8a5095f27251608",
   "assets": {
-    "directory": "./public",
+    "directory": "./dist",
     "not_found_handling": "404-page"
   },
   "routes": [

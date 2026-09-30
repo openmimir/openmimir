@@ -852,6 +852,166 @@ footer a:hover {
   color: var(--bright);
 }
 
+/* Guides and blog posts */
+.doc {
+  max-width: 760px;
+  padding-top: 64px;
+}
+
+.doc h1 {
+  font-size: clamp(34px, 5vw, 50px);
+  margin: 10px 0 18px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.date {
+  margin: 14px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.prose {
+  margin-top: 40px;
+  font-size: 16.5px;
+  line-height: 1.75;
+}
+
+.prose h2 {
+  font-size: 26px;
+  margin: 48px 0 14px;
+}
+
+.prose p,
+.prose ul,
+.prose ol {
+  margin: 0 0 18px;
+}
+
+.prose li {
+  margin-bottom: 8px;
+}
+
+.prose b {
+  color: var(--bright);
+  font-weight: 600;
+}
+
+.prose a {
+  color: var(--accent);
+  text-decoration-color: rgb(54 226 196 / 0.4);
+  text-underline-offset: 3px;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 24px;
+  font-size: 14.5px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  display: block;
+  overflow-x: auto;
+}
+
+.prose th,
+.prose td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.prose thead th {
+  color: var(--bright);
+  background: var(--panel-2);
+  font-weight: 600;
+}
+
+.prose tbody td:first-child {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.prose tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.doc-cta {
+  margin: 56px 0 8px;
+  padding: 48px 24px;
+}
+
+.doc-cta p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.doc-faq {
+  border-top: 0;
+  padding: 48px 0 16px;
+}
+
+.related {
+  padding: 40px 0 24px;
+}
+
+.related h2,
+.prose .related-grid + h2 {
+  font-size: 24px;
+}
+
+.related-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.related-grid a {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  text-decoration: none;
+  transition:
+    border-color 0.3s,
+    transform 0.4s var(--ease);
+}
+
+.related-grid a:hover {
+  border-color: rgb(54 226 196 / 0.35);
+  transform: translateY(-2px);
+}
+
+.related-grid b {
+  color: var(--bright);
+  line-height: 1.35;
+}
+
+.related-grid span {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .related-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Scroll reveal */
 .reveal {
   opacity: 0;

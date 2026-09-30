@@ -15,9 +15,25 @@
     />
     <meta property="og:url" content="https://openmimir.com" />
     <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://openmimir.com/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://openmimir.com/" />
     <meta name="theme-color" content="#07090a" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/style.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "OpenMimir",
+        "url": "https://openmimir.com",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS",
+        "license": "https://opensource.org/licenses/MIT",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "description": "One conversation in front of Claude Code, Codex and OpenCode, with full-duplex voice. Open source, runs on your Mac."
+      }
+    </script>
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
@@ -30,7 +46,7 @@
         </a>
         <nav>
           <a href="#agents">Agents</a>
-          <a href="#how">How it works</a>
+          <a href="/guides">Guides</a>
           <a href="#faq">FAQ</a>
           <a class="gh" href="https://github.com/openmimir/openmimir">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -238,6 +254,7 @@
 
     <footer>
       <span>OpenMimir · MIT licensed</span>
+      <a href="/guides">Guides</a>
       <a href="https://github.com/openmimir/openmimir">GitHub</a>
       <a href="https://github.com/openmimir/openmimir/blob/main/SECURITY.md">Security</a>
     </footer>

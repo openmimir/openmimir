@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - name: Build
+        working-directory: apps/site
+        run: bun run build.ts
       - name: Deploy openmimir.com
         working-directory: apps/site
         run: npx --yes wrangler@4 deploy

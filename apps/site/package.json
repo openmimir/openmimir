@@ -2,9 +2,11 @@
   "name": "@openmimir/site",
   "version": "0.0.0",
   "private": true,
-  "description": "openmimir.com: a static page and the install script, served by Cloudflare.",
+  "description": "openmimir.com: the landing page, guides and install script, served by Cloudflare.",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "build": "bun run build.ts",
+    "dev": "bun run build.ts && wrangler dev",
+    "deploy": "bun run build.ts && wrangler deploy",
+    "og": "\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless=new --hide-scrollbars --window-size=1200,630 --screenshot=\"$PWD/public/og.png\" \"file://$PWD/og/og.html\""
   }
 }

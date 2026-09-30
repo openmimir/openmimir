@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- Source for public/og.png (1200x630). Regenerate with: bun run og -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+      body {
+        background:
+          radial-gradient(700px 420px at 88% -10%, rgb(54 226 196 / 0.22), transparent 60%),
+          radial-gradient(520px 380px at 0% 110%, rgb(217 119 87 / 0.14), transparent 60%),
+          #07090a;
+        color: #c9d3d6;
+        font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+        position: relative;
+      }
+      .grid {
+        position: absolute; inset: 0;
+        background-image: linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+        background-size: 60px 60px;
+        mask-image: radial-gradient(ellipse 90% 80% at 80% 20%, #000 20%, transparent 75%);
+      }
+      .wrap { position: absolute; inset: 72px 80px; display: flex; flex-direction: column; }
+      .brand { display: flex; align-items: center; gap: 16px; font-size: 32px; font-weight: 700; color: #f1f5f6; }
+      h1 { margin: 56px 0 0; font-size: 76px; line-height: 1.02; letter-spacing: -0.04em; color: #f1f5f6; max-width: 900px; }
+      h1 span { color: #36e2c4; }
+      .row { margin-top: auto; display: flex; align-items: center; gap: 14px; font-size: 24px; }
+      .chip { display: inline-flex; align-items: center; gap: 10px; padding: 10px 20px 10px 14px; border-radius: 999px;
+        border: 1px solid #2a353a; background: rgb(255 255 255 / 0.03); color: #e3e9eb; }
+      .chip img { width: 26px; height: 26px; }
+      .claude { border-color: rgb(217 119 87 / 0.5); background: rgb(217 119 87 / 0.12); color: #fff; font-weight: 600; }
+      .voice { margin-left: auto; color: #8a979c; }
+      .well { position: absolute; right: 90px; top: 150px; width: 220px; height: 220px; }
+      .well i { position: absolute; inset: 0; margin: auto; border-radius: 50%; border: 3px solid #36e2c4; }
+    </style>
+  </head>
+  <body>
+    <div class="grid"></div>
+    <div class="well">
+      <i style="width: 60px; height: 60px; background: #36e2c4; box-shadow: 0 0 60px #36e2c4"></i>
+      <i style="width: 130px; height: 130px; opacity: 0.5"></i>
+      <i style="width: 210px; height: 210px; opacity: 0.2"></i>
+    </div>
+    <div class="wrap">
+      <div class="brand"><img alt="" src="../public/favicon.svg" width="44" height="44" /> OpenMimir</div>
+      <h1>Talk to all your <span>coding agents.</span></h1>
+      <div class="row">
+        <span class="chip claude"><img alt="" src="../public/icons/claude.svg" /> Claude Code</span>
+        <span class="chip"><img alt="" src="../public/icons/codex.svg" /> Codex</span>
+        <span class="chip"><img alt="" src="../public/icons/opencode.svg" /> OpenCode</span>
+        <span class="voice">Hands-free voice · open source</span>
+      </div>
+    </div>
+  </body>
+</html>

@@ -40,11 +40,17 @@ const HISTORY_LIMIT = 40;
 
 const BASE_PROMPT = `You are Mimir, the master thread above all of the user's coding-agent sessions (OpenCode, Claude Code, Codex). The user talks to you in one ongoing conversation, by keyboard or by voice, often while away from their desk (riding an indoor bike, running, walking). You do not write code yourself: agent sessions do the work, and you steer them, collect their results and tell the user what matters.
 
-You can see the user's recent sessions in every agent, including ones they started themselves at their desk, and you can continue any of them. The user should never have to name an agent, a session or an id. Work out what they mean from context:
+You can see the user's recent sessions in every agent, and search_sessions searches each agent's whole history (months back), including sessions the user started themselves at their desk. You can continue any of them. The user should never have to name an agent, a session or an id. Work out what they mean from context:
 - "How's the refactor going?" or "continue where I left off in reachkit" refers to an existing session. Match by project and topic, most recent first.
+- If nothing recent matches, or the user says it is older, use search_sessions with the topic words and project before asking them. Try a couple of phrasings. Only ask the user once searching found nothing.
+- Questions about sessions ("which session was that?", "what were we doing in X?") are questions: answer them, do not start work.
 - A request for new, unrelated work gets a new session.
 - If it is genuinely ambiguous between two sessions, ask one short question naming them by title.
 - Never mention internal ids. Refer to sessions by their title and project.
+
+Before you start or redirect work:
+- Only act on a clear request: you must know which project, what outcome, and roughly what scope. If the request is vague ("work on the MCP", "fix the thing"), ask one short question first, offering your best guess, e.g. "Do you want me to continue the MCP data improvements session, or start something new, and if so what should it do?".
+- Starting a new session is a bigger step than answering. When in doubt, answer or ask instead.
 
 How you work:
 - New session instructions must be self-contained: the agent cannot see this conversation. Include the goal, context, constraints and what "done" means.
@@ -60,11 +66,20 @@ Approvals:
 - "confirm" tier may be approved over voice, but only after you read the action back and the user explicitly says "confirm". "screen" tier can only be approved on a screen; tell the user it will wait for them.
 - Rejecting is always allowed.`;
 
-const VOICE_NOTE = `This request came in by voice. A separate voice model will say your reply out loud and may paraphrase it. Reply in at most three short sentences of plain speech: no markdown, no lists, no code, no file paths unless essential. Numbers and names should be easy to say.`;
+const VOICE_NOTE = `This request came in by voice. A separate voice model will say your reply out loud and may paraphrase it. Reply in at most three short sentences of plain speech: no markdown, no lists, no code, no file paths unless essential. Numbers and names should be easy to say.
+Speech recognition makes mistakes, so starting or redirecting work by voice takes two turns. Call start_session or message_session as soon as the request is clear: over voice the first call is held and nothing happens. Then read back in one sentence what you understood and will do, and ask for a yes. When the user agrees in their next turn, call the same tool again with confirmed_by_user=true. If they correct you, call it with the corrected plan (held again). Reading and searching need no confirmation.`;
 
 const TEXT_NOTE = `This request came in by keyboard. Markdown is fine. Stay concise.`;
 
 const AGENT_ENUM = z.enum(["opencode", "claude", "codex"]);
+
+/** A spoken "yes" only confirms a plan read back this recently. */
+const READ_BACK_VALID_MS = 3 * 60_000;
+
+const CONFIRMED = z
+  .boolean()
+  .default(false)
+  .describe("Voice only: true once the user agreed, in a later turn, to the plan you read back.");
 
 /** Earlier replies carry a note of what was looked at, so follow-ups do not repeat the work. */
 function withStepNotes(message: ChatMessage, sessions: SessionManager): string {
@@ -90,6 +105,8 @@ type BeginStep = (
 
 export class Foreman {
   private queue: Promise<unknown> = Promise.resolve();
+  /** The voice turn in which Mimir read a plan back and asked for a yes. */
+  private readBackAskedIn: { requestId: string; at: number } | undefined;
 
   constructor(private readonly deps: ForemanDeps) {}
 
@@ -197,8 +214,27 @@ Tell the user what this means for what they asked, in your own words. Lead with 
     return result;
   }
 
-  private tools(source: ForemanRequest["source"], begin: BeginStep) {
+  private tools(source: ForemanRequest["source"], begin: BeginStep, requestId: string) {
     const { sessions, projects, defaultAgent } = this.deps;
+    /**
+     * Voice gets misheard, so work only starts after Mimir read the plan back and the
+     * user agreed in a later turn. Returns a refusal to hand back to the model, or nothing.
+     */
+    const readBack = (plan: string, confirmed: boolean) => {
+      if (source !== "voice") return undefined;
+      const asked = this.readBackAskedIn;
+      const askedEarlier =
+        asked && asked.requestId !== requestId && Date.now() - asked.at < READ_BACK_VALID_MS;
+      if (confirmed && askedEarlier) {
+        this.readBackAskedIn = undefined;
+        return undefined;
+      }
+      if (!askedEarlier) this.readBackAskedIn = { requestId, at: Date.now() };
+      return {
+        needsConfirmation: true,
+        reason: `Nothing was done yet. Voice can be misheard: say back in one sentence what you understood and will do (${plan}) and ask the user to confirm. Call this again with confirmed_by_user=true only after they agree in their next turn.`,
+      };
+    };
     return {
       list_projects: tool({
         description: "List the git repositories new sessions can be started in.",
@@ -240,6 +276,33 @@ Tell the user what this means for what they asked, in your own words. Lead with 
           }));
         },
       }),
+      search_sessions: tool({
+        description:
+          "Search every agent's whole session history (not just recent ones) by topic words and/or project. Use it when the user refers to older work or nothing recent matches.",
+        inputSchema: z.object({
+          query: z
+            .string()
+            .optional()
+            .describe("Topic words, e.g. 'lead finder export' or 'abuse detection'."),
+          project: z.string().optional().describe("Only sessions in this project (worktrees included)."),
+          limit: z.number().int().min(1).max(30).default(12),
+        }),
+        execute: async ({ query, project, limit }) => {
+          const what = [query && `"${query}"`, project && `in ${project}`].filter(Boolean).join(" ");
+          const step = begin(`Searched all session history${what ? ` for ${what}` : ""}`);
+          const found = await sessions.search({ text: query, project, limit });
+          step.done(`${found.length} found`);
+          return found.map((t) => ({
+            id: t.id,
+            title: t.title,
+            project: t.directory.split("/").filter(Boolean).pop(),
+            agent: AGENT_LABELS[t.agent],
+            status: statusLabel(t.status),
+            lastActive: ago(t.updatedAt),
+            lastSaid: t.lastText?.slice(-300),
+          }));
+        },
+      }),
       start_session: tool({
         description: "Start a new agent session in a project, with its first instructions.",
         inputSchema: z.object({
@@ -247,8 +310,11 @@ Tell the user what this means for what they asked, in your own words. Lead with 
           title: z.string().describe("Short title, 2-6 words, e.g. 'Fix flaky auth tests'."),
           instructions: z.string().describe("Complete, self-contained instructions for the agent."),
           agent: AGENT_ENUM.optional().describe("Only set this if the user asked for a specific agent."),
+          confirmed_by_user: CONFIRMED,
         }),
-        execute: async ({ project, title, instructions, agent }) => {
+        execute: async ({ project, title, instructions, agent, confirmed_by_user }) => {
+          const pending = readBack(`start a new session in ${project}: ${title}`, confirmed_by_user);
+          if (pending) return pending;
           const ref = projects.resolve(project);
           if (!ref) return { error: `No project matches "${project}". Call list_projects to see options.` };
           const chosen = agent ?? defaultAgent;
@@ -289,10 +355,14 @@ Tell the user what this means for what they asked, in your own words. Lead with 
             .boolean()
             .default(false)
             .describe("Set after the user agreed to message a session that may be open on their screen."),
+          confirmed_by_user: CONFIRMED,
         }),
-        execute: async ({ session_id, text, user_confirmed }) => {
+        execute: async ({ session_id, text, user_confirmed, confirmed_by_user }) => {
           const session = sessions.get(session_id);
-          if (!session) return { error: `No session ${session_id}. Call recent_sessions.` };
+          if (!session)
+            return { error: `No session ${session_id}. Call recent_sessions or search_sessions.` };
+          const pending = readBack(`send "${session.title}" new instructions`, confirmed_by_user);
+          if (pending) return pending;
           if (!session.tracked && Date.now() - session.updatedAt < IN_USE_MS && !user_confirmed) {
             return {
               needsConfirmation: true,
@@ -465,7 +535,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
         messages: request.internal
           ? [...this.history(), { role: "user", content: request.internal.context }]
           : this.history(),
-        tools: this.tools(request.source, begin),
+        tools: this.tools(request.source, begin, reply.id),
         stopWhen: stepCountIs(8),
         onError: ({ error }) => {
           streamError = error;

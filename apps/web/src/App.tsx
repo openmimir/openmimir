@@ -3,6 +3,7 @@ import { Bike, ListTodo, Mic, MicOff, Monitor, PhoneOff, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { Chat } from "./components/Chat";
+import { LiveCaptions } from "./components/LiveCaptions";
 import { Logo } from "./components/Logo";
 import { Orb, type OrbMode } from "./components/Orb";
 import { GlanceRow, SessionCard } from "./components/SessionCard";
@@ -199,22 +200,10 @@ export function App() {
         </main>
 
         <footer className="min-h-28 rounded-2xl border border-well-700 bg-well-900 p-5">
-          {mimir.captions.user && (
-            <div className={`text-xl ${mimir.captions.user.final ? "text-well-400" : "text-well-50"}`}>
-              <span className="mr-2 font-semibold text-well-500">You</span>
-              {mimir.captions.user.text}
-            </div>
-          )}
-          {mimir.captions.mimir && (
-            <div
-              className={`mt-1 text-2xl font-medium ${mimir.captions.mimir.final ? "text-well-200" : "text-accent"}`}
-            >
-              <span className="mr-2 font-semibold text-accent-dim">Mimir</span>
-              {mimir.captions.mimir.text}
-            </div>
-          )}
-          {!mimir.captions.user && !mimir.captions.mimir && (
-            <div className="text-xl text-well-500">Live captions appear here.</div>
+          {voiceActive ? (
+            <LiveCaptions user={mimir.captions.user} mimir={mimir.captions.mimir} big />
+          ) : (
+            <div className="text-xl text-well-500">Live captions appear here while you talk.</div>
           )}
         </footer>
       </div>
@@ -307,7 +296,14 @@ export function App() {
             onSend={mimir.sendChat}
             voiceButton={voiceButton}
             aboveComposer={
-              approvals.length > 0 ? <div className="mb-3 flex flex-col gap-2">{approvals}</div> : null
+              <>
+                {approvals.length > 0 && <div className="mb-3 flex flex-col gap-2">{approvals}</div>}
+                {voiceActive && (
+                  <div className="mb-3 rounded-xl border border-well-800 bg-well-900 px-4 py-3">
+                    <LiveCaptions user={mimir.captions.user} mimir={mimir.captions.mimir} />
+                  </div>
+                )}
+              </>
             }
           />
         </main>

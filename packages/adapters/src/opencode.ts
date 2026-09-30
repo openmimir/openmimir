@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { readSSE } from "./sse.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
-import { Emitter } from "./util.ts";
+import { Emitter, matchesProject, type SessionQuery, scoreText } from "./util.ts";
 
 /**
  * Find the user's OpenCode background service: the server their OpenCode app and
@@ -257,6 +257,39 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     ]);
     return Promise.all(
       sessions.data.map(async (session) => ({
+        externalId: session.id,
+        title: session.title || "Untitled session",
+        directory: session.location.directory,
+        createdAt: session.time.created,
+        updatedAt: session.time.updated,
+        running: session.id in active.data || (await this.looksBusy(session)),
+      })),
+    );
+  }
+
+  async search(query: SessionQuery): Promise<SessionSummary[]> {
+    // The whole root-session list is small (titles only), so match locally.
+    const [sessions, active] = await Promise.all([
+      this.request<{
+        data: Array<{
+          id: string;
+          title?: string;
+          location: { directory: string };
+          time: { created: number; updated: number; idle?: number };
+        }>;
+      }>("GET", "/api/session?limit=1000&order=desc&parentID=null"),
+      this.request<{ data: Record<string, unknown> }>("GET", "/api/session/active").catch(() => ({
+        data: {},
+      })),
+    ]);
+    const matches = sessions.data
+      .filter((session) => matchesProject(session.location.directory, query.project))
+      .map((session) => ({ session, score: scoreText(query.text, { title: session.title ?? "" }) }))
+      .filter((m) => m.score > 0)
+      .sort((a, b) => b.score - a.score || b.session.time.updated - a.session.time.updated)
+      .slice(0, query.limit);
+    return Promise.all(
+      matches.map(async ({ session }) => ({
         externalId: session.id,
         title: session.title || "Untitled session",
         directory: session.location.directory,

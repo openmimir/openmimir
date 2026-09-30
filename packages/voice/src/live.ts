@@ -268,6 +268,7 @@ export class LiveVoice {
     try {
       // Transcripts can trail the delegation event slightly.
       let utterance = "";
+      let transcribedHere = false;
       for (let waited = 0; waited <= 1750 && !utterance; waited += 250) {
         await Bun.sleep(waited === 0 ? 350 : 250);
         utterance = this.takeUtterance();
@@ -275,12 +276,17 @@ export class LiveVoice {
       if (!utterance) {
         // Live transcription sometimes stays silent; transcribe the mic audio ourselves.
         this.log(`delegation ${delegationId}: no live transcript, transcribing recent audio`);
+        transcribedHere = true;
         utterance = await this.transcribeRecent(requestedAt).catch((error) => {
           this.log(`fallback transcription failed: ${error instanceof Error ? error.message : error}`);
           return "";
         });
       }
       this.lastDelegationAt = requestedAt;
+      if (utterance && transcribedHere) {
+        // Show what was heard, so the user can correct a mishearing.
+        this.options.onCaption({ speaker: "user", text: utterance, final: true, at: Date.now() });
+      }
       if (!utterance) {
         this.send({
           type: "session.commentary.append",

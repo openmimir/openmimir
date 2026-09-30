@@ -22,6 +22,12 @@ class FakeAdapter implements AgentAdapter {
   async listRecent() {
     return this.recent;
   }
+  archive: SessionSummary[] = [];
+  async search(query: { text?: string }) {
+    return this.archive.filter(
+      (s) => !query.text || s.title.toLowerCase().includes(query.text.toLowerCase()),
+    );
+  }
   async createSession(input: { directory: string; title: string; prompt: string }) {
     this.prompts.push(input.prompt);
     this.recent.unshift(summary("new", { title: input.title, running: true }));
@@ -153,5 +159,20 @@ describe("SessionManager", () => {
     adapter.recent = [summary("other")];
     await manager.refresh(true);
     expect(new Set(manager.list().map((s) => s.id))).toEqual(new Set(["opencode:other", "opencode:new"]));
+  });
+});
+
+describe("SessionManager search", () => {
+  test("finds sessions outside the recent list and can act on them", async () => {
+    const { adapter, manager } = setup();
+    adapter.recent = [summary("recent")];
+    adapter.archive = [
+      summary("old", { title: "Detecting abuse via inbox patterns", updatedAt: Date.now() - 3 * 86_400_000 }),
+    ];
+    await manager.refresh(true);
+    const found = await manager.search({ text: "abuse", limit: 5 });
+    expect(found.map((s) => s.title)).toEqual(["Detecting abuse via inbox patterns"]);
+    await manager.message("opencode:old", "carry on");
+    expect(adapter.prompts).toEqual(["carry on"]);
   });
 });

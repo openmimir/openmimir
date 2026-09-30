@@ -4,7 +4,16 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { gitChanges } from "./git.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
-import { Emitter, headAndTail, lines, oneLine, parseJsonLines } from "./util.ts";
+import {
+  Emitter,
+  headAndTail,
+  lines,
+  matchesProject,
+  oneLine,
+  parseJsonLines,
+  type SessionQuery,
+  scoreText,
+} from "./util.ts";
 
 export interface CodexAdapterOptions {
   binary?: string;
@@ -17,6 +26,8 @@ type Json = Record<string, unknown>;
 
 /** A rollout that has not been written to for this long is not running, whatever it says. */
 const STALE_MS = 10 * 60_000;
+/** Search reads at most this many rollouts (newest first). */
+const SEARCH_FILES = 400;
 
 /**
  * Drives Codex through `codex exec --json` and reads past sessions from its
@@ -82,10 +93,13 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
     return found.sort((a, b) => b.mtime - a.mtime).slice(0, limit);
   }
 
-  async listRecent(limit: number): Promise<SessionSummary[]> {
+  private async toSummaries(
+    files: Array<{ path: string; mtime: number; ctime: number }>,
+    bytes = 256 * 1024,
+  ): Promise<SessionSummary[]> {
     const summaries: SessionSummary[] = [];
-    for (const file of this.recentFiles(limit)) {
-      const summary = await this.summarize(file.path).catch(() => undefined);
+    for (const file of files) {
+      const summary = await this.summarize(file.path, bytes).catch(() => undefined);
       if (!summary) continue;
       const { midTurn, ...rest } = summary;
       summaries.push({
@@ -98,8 +112,22 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
     return summaries;
   }
 
-  private async summarize(path: string) {
-    const { head, tail } = await headAndTail(path, 256 * 1024);
+  async listRecent(limit: number): Promise<SessionSummary[]> {
+    return this.toSummaries(this.recentFiles(limit));
+  }
+
+  async search(query: SessionQuery): Promise<SessionSummary[]> {
+    const summaries = await this.toSummaries(this.recentFiles(SEARCH_FILES), 96 * 1024);
+    return summaries
+      .map((s) => ({ s, score: scoreText(query.text, { title: s.title, body: s.lastText }) }))
+      .filter((m) => m.score > 0 && matchesProject(m.s.directory, query.project))
+      .sort((a, b) => b.score - a.score || b.s.updatedAt - a.s.updatedAt)
+      .slice(0, query.limit)
+      .map((m) => m.s);
+  }
+
+  private async summarize(path: string, bytes = 256 * 1024) {
+    const { head, tail } = await headAndTail(path, bytes);
     let externalId = "";
     let directory = "";
     let firstPrompt = "";

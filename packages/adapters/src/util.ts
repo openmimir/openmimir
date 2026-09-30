@@ -63,3 +63,51 @@ export function oneLine(text: string, max = 80): string {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
 }
+
+export interface SessionQuery {
+  /** Words to look for in titles and messages, e.g. "lead finder export". */
+  text?: string;
+  /** Project name; matches the session's folder loosely (worktrees included). */
+  project?: string;
+  limit: number;
+}
+
+const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+const STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "was",
+  "were",
+  "about",
+  "session",
+  "sessions",
+]);
+
+export function matchesProject(directory: string, project: string | undefined): boolean {
+  if (!project) return true;
+  const wanted = normalize(project);
+  const base = normalize(directory.split("/").filter(Boolean).pop() ?? "");
+  return base.includes(wanted) || wanted.includes(base);
+}
+
+/** 0 means no match; higher means a better match. Title hits count double. */
+export function scoreText(text: string | undefined, fields: { title: string; body?: string }): number {
+  if (!text?.trim()) return 1;
+  const words = text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+  if (words.length === 0) return 1;
+  const title = fields.title.toLowerCase();
+  const body = (fields.body ?? "").toLowerCase();
+  let score = 0;
+  for (const word of words) {
+    if (title.includes(word)) score += 2;
+    else if (body.includes(word)) score += 1;
+  }
+  return score;
+}

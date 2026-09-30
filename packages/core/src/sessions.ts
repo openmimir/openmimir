@@ -40,6 +40,8 @@ export class SessionManager {
   private recentCache: { at: number; sessions: AgentSession[] } | undefined;
   private refreshing: Promise<AgentSession[]> | undefined;
   private lastPublished = "";
+  /** Sessions found by search, so the foreman can act on them by id. */
+  private readonly found = new Map<string, AgentSession>();
 
   constructor(
     private readonly adapters: Map<AgentKind, AgentAdapter>,
@@ -82,7 +84,32 @@ export class SessionManager {
   }
 
   get(id: string): AgentSession | undefined {
-    return this.recentCache?.sessions.find((t) => t.id === id) ?? this.store.session(id);
+    return (
+      this.recentCache?.sessions.find((t) => t.id === id) ?? this.store.session(id) ?? this.found.get(id)
+    );
+  }
+
+  /** Search every agent's whole history, not just the recent sessions. */
+  async search(query: { text?: string; project?: string; limit: number }): Promise<AgentSession[]> {
+    const results = await Promise.all(
+      [...this.adapters.values()].map(async (adapter) => {
+        try {
+          return (await adapter.search(query)).map((s) => this.fromSummary(adapter.kind, s));
+        } catch (error) {
+          this.log(
+            `[sessions] could not search ${adapter.kind}: ${error instanceof Error ? error.message : error}`,
+          );
+          return [];
+        }
+      }),
+    );
+    // Interleave agents so one agent's many weak matches do not crowd out another's.
+    const merged: AgentSession[] = [];
+    for (let i = 0; merged.length < query.limit && results.some((r) => i < r.length); i++) {
+      for (const list of results) if (list[i]) merged.push(list[i] as AgentSession);
+    }
+    for (const session of merged) this.found.set(session.id, session);
+    return merged.slice(0, query.limit);
   }
 
   pendingApprovals(): Approval[] {

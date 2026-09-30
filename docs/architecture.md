@@ -52,6 +52,10 @@ started. Continuing an existing session is the same call as following up on one 
 Sessions touched outside Mimir in the last few minutes may be open on the user's screen; the foreman
 asks before sending to them.
 
+Every adapter also implements `search`, which looks through the agent's whole history (OpenCode's
+session list, the newest few hundred Claude Code transcripts and Codex rollouts), so older sessions
+can be found by topic and project.
+
 Only sessions Mimir started or continued get spoken updates. The rest are shown, not narrated.
 
 ## Voice
@@ -79,6 +83,11 @@ OpenCode asks permission for some actions. Mimir classifies each request
 - `screen`: pushes, deploys, deletes, `sudo`, etc. Only approvable from a screen.
 
 Rejecting is always allowed. The rule is enforced in code, not only in the prompt.
+
+Starting or redirecting work by voice takes two turns, also enforced in code: the first
+`start_session`/`message_session` call from a voice turn is held, Mimir reads the plan back, and only
+a confirmation in a later turn (within three minutes) lets it through. Typed requests act directly,
+but vague ones get a clarifying question first.
 
 ## Security
 

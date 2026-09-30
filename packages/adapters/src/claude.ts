@@ -4,7 +4,16 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { gitChanges } from "./git.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
-import { Emitter, headAndTail, lines, oneLine, parseJsonLines } from "./util.ts";
+import {
+  Emitter,
+  headAndTail,
+  lines,
+  matchesProject,
+  oneLine,
+  parseJsonLines,
+  type SessionQuery,
+  scoreText,
+} from "./util.ts";
 
 export interface ClaudeCodeAdapterOptions {
   binary?: string;
@@ -17,6 +26,8 @@ type Json = Record<string, unknown>;
 
 /** A transcript that has not been written to for this long is not running, whatever it says. */
 const STALE_MS = 10 * 60_000;
+/** Search reads at most this many transcripts (newest first). */
+const SEARCH_FILES = 400;
 
 /**
  * Drives Claude Code through its headless mode (`claude -p`) and reads past
@@ -50,8 +61,9 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     return { ok: true, version };
   }
 
-  async listRecent(limit: number): Promise<SessionSummary[]> {
-    const files: Array<{ path: string; id: string; mtime: number; ctime: number }> = [];
+  /** Every transcript on disk, newest first, with the project folder it lives in. */
+  private files(): Array<{ path: string; id: string; folder: string; mtime: number; ctime: number }> {
+    const files: Array<{ path: string; id: string; folder: string; mtime: number; ctime: number }> = [];
     let dirs: string[] = [];
     try {
       dirs = readdirSync(this.projectsDir);
@@ -70,29 +82,59 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
         if (!entry.endsWith(".jsonl")) continue;
         const path = join(full, entry);
         const stat = statSync(path);
-        files.push({ path, id: entry.slice(0, -6), mtime: stat.mtimeMs, ctime: stat.birthtimeMs });
+        files.push({
+          path,
+          id: entry.slice(0, -6),
+          folder: dir,
+          mtime: stat.mtimeMs,
+          ctime: stat.birthtimeMs,
+        });
       }
     }
-    files.sort((a, b) => b.mtime - a.mtime);
+    return files.sort((a, b) => b.mtime - a.mtime);
+  }
+
+  private async toSummaries(
+    files: Array<{ path: string; id: string; mtime: number; ctime: number }>,
+    bytes = 256 * 1024,
+  ): Promise<SessionSummary[]> {
     const summaries: SessionSummary[] = [];
-    for (const file of files.slice(0, limit)) {
-      const summary = await this.summarize(file.path, file.id).catch(() => undefined);
+    for (const file of files) {
+      const summary = await this.summarize(file.path, file.id, bytes).catch(() => undefined);
       if (!summary) continue;
-      const { midTurn: _midTurn, ...rest } = summary;
+      const { midTurn, ...rest } = summary;
       summaries.push({
         ...rest,
         externalId: file.id,
         updatedAt: file.mtime,
         createdAt: file.ctime,
         // Headless runs Mimir started are known; for the user's own terminals, infer from the transcript.
-        running: this.running.has(file.id) || (summary.midTurn && Date.now() - file.mtime < STALE_MS),
+        running: this.running.has(file.id) || (midTurn && Date.now() - file.mtime < STALE_MS),
       });
     }
     return summaries;
   }
 
-  private async summarize(path: string, id: string) {
-    const { head, tail } = await headAndTail(path, 256 * 1024);
+  async listRecent(limit: number): Promise<SessionSummary[]> {
+    return this.toSummaries(this.files().slice(0, limit));
+  }
+
+  async search(query: SessionQuery): Promise<SessionSummary[]> {
+    // Project folders are named after the working directory, so filter before reading anything.
+    const candidates = this.files()
+      .filter((f) => !query.project || matchesProject(f.folder.replaceAll("-", "/"), query.project))
+      .slice(0, SEARCH_FILES);
+    const summaries = await this.toSummaries(candidates, 64 * 1024);
+    return summaries
+      .map((s) => ({ s, score: scoreText(query.text, { title: s.title, body: s.lastText }) }))
+      .filter((m) => m.score > 0 && matchesProject(m.s.directory, query.project))
+      .sort((a, b) => b.score - a.score || b.s.updatedAt - a.s.updatedAt)
+      .slice(0, query.limit)
+      .map((m) => m.s);
+  }
+
+  private async summarize(path: string, id: string, bytes = 256 * 1024) {
+    const { head, tail } = await headAndTail(path, bytes);
     const first = parseJsonLines(head);
     const last = parseJsonLines(tail);
     let directory = "";

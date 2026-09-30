@@ -3,6 +3,9 @@
  * to agents through this interface.
  */
 import type { AgentKind } from "@openmimir/protocol";
+import type { SessionQuery } from "./util.ts";
+
+export type { SessionQuery };
 
 export type PermissionDecision = "once" | "always" | "reject";
 
@@ -64,6 +67,8 @@ export interface AgentAdapter {
   health(): Promise<AdapterHealth>;
   /** Most recently active sessions, newest first. */
   listRecent(limit: number): Promise<SessionSummary[]>;
+  /** Search the agent's whole history, best matches first. */
+  search(query: SessionQuery): Promise<SessionSummary[]>;
   /** Create a session in `directory` and send it its first instructions. */
   createSession(input: {
     directory: string;

@@ -24,6 +24,10 @@
         "@openmimir/voice": "workspace:*",
       },
     },
+    "apps/site": {
+      "name": "@openmimir/site",
+      "version": "0.0.0",
+    },
     "apps/web": {
       "name": "@openmimir/web",
       "version": "0.1.0",
@@ -159,6 +163,8 @@
     "@openmimir/core": ["@openmimir/core@workspace:packages/core"],
 
     "@openmimir/protocol": ["@openmimir/protocol@workspace:packages/protocol"],
+
+    "@openmimir/site": ["@openmimir/site@workspace:apps/site"],
 
     "@openmimir/voice": ["@openmimir/voice@workspace:packages/voice"],
 

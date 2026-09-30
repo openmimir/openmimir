@@ -12,6 +12,8 @@ bun run dev            # build the web UI, start the server on :4747
 
 UI work: run `bun run dev:server` and `bun run dev:web` together and open <http://localhost:5173>.
 
+Set `MIMIR_DEBUG=1` to log every GPT-Live event while working on voice.
+
 You need OpenCode v2 on your PATH and an `OPENAI_API_KEY` for voice. Use a separate `MIMIR_HOME`
 (for example `MIMIR_HOME=/tmp/mimir-dev`) to keep your real config and history out of the way.
 

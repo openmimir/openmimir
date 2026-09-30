@@ -9,6 +9,7 @@ import {
 import { type LanguageModel, type ModelMessage, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 import { type EventBus, newId } from "./bus.ts";
+import { formatDispatch } from "./dispatch.ts";
 import { canApprove } from "./policy.ts";
 import type { ProjectIndex } from "./projects.ts";
 import { ago, IN_USE_MS, type SessionManager, statusLabel } from "./sessions.ts";
@@ -41,7 +42,7 @@ const HISTORY_LIMIT = 40;
 const BASE_PROMPT = `You are Mimir, the master thread above all of the user's coding-agent sessions (OpenCode, Claude Code, Codex). The user talks to you in one ongoing conversation, by keyboard or by voice, often while away from their desk (riding an indoor bike, running, walking). You do not write code yourself: agent sessions do the work, and you steer them, collect their results and tell the user what matters.
 
 You can see the user's recent sessions in every agent, and search_sessions searches each agent's whole history (months back), including sessions the user started themselves at their desk. You can continue any of them. The user should never have to name an agent, a session or an id. Work out what they mean from context:
-- "How's the refactor going?" or "continue where I left off in reachkit" refers to an existing session. Match by project and topic, most recent first.
+- "How's the refactor going?" or "continue where I left off in the api repo" refers to an existing session. Match by project and topic, most recent first.
 - If nothing recent matches, or the user says it is older, use search_sessions with the topic words and project before asking them. Try a couple of phrasings. Only ask the user once searching found nothing.
 - Questions about sessions ("which session was that?", "what were we doing in X?") are questions: answer them, do not start work.
 - A request for new, unrelated work gets a new session.
@@ -53,7 +54,7 @@ Before you start or redirect work:
 - Starting a new session is a bigger step than answering. When in doubt, answer or ask instead.
 
 How you work:
-- New session instructions must be self-contained: the agent cannot see this conversation. Include the goal, context, constraints and what "done" means.
+- The user's exact words are attached to what you send automatically; you write the task. New session instructions must be self-contained: the agent cannot see this conversation. Include the goal, context, constraints and what "done" means.
 - Follow-ups on existing work go to that session with message_session, so the agent keeps its context.
 - When you send a session work, say in one short sentence what you asked it to do. You will automatically get its reply when it finishes and then report back; do not promise to "check" or "keep an eye on it" beyond that.
 - Sessions the user touched in the last few minutes outside Mimir may be open on their screen. message_session will say so; then ask the user before sending.
@@ -214,8 +215,9 @@ Tell the user what this means for what they asked, in your own words. Lead with 
     return result;
   }
 
-  private tools(source: ForemanRequest["source"], begin: BeginStep, requestId: string) {
+  private tools(source: ForemanRequest["source"], begin: BeginStep, requestId: string, said?: string) {
     const { sessions, projects, defaultAgent } = this.deps;
+    const dispatch = (task: string) => formatDispatch({ said, source, task });
     /**
      * Voice gets misheard, so work only starts after Mimir read the plan back and the
      * user agreed in a later turn. Returns a refusal to hand back to the model, or nothing.
@@ -288,8 +290,11 @@ Tell the user what this means for what they asked, in your own words. Lead with 
           limit: z.number().int().min(1).max(30).default(12),
         }),
         execute: async ({ query, project, limit }) => {
-          const what = [query && `"${query}"`, project && `in ${project}`].filter(Boolean).join(" ");
-          const step = begin(`Searched all session history${what ? ` for ${what}` : ""}`);
+          const step = begin(
+            ["Searched all session history", query && `for "${query}"`, project && `in ${project}`]
+              .filter(Boolean)
+              .join(" "),
+          );
           const found = await sessions.search({ text: query, project, limit });
           step.done(`${found.length} found`);
           return found.map((t) => ({
@@ -320,17 +325,18 @@ Tell the user what this means for what they asked, in your own words. Lead with 
           const chosen = agent ?? defaultAgent;
           if (!sessions.agents.includes(chosen))
             return { error: `${AGENT_LABELS[chosen]} is not available.` };
+          const message = dispatch(instructions);
           const step = begin(
             `Started a new ${AGENT_LABELS[chosen]} session in ${ref.name}`,
             undefined,
-            instructions,
+            message,
           );
           try {
             const session = await sessions.start({
               agent: chosen,
               directory: ref.directory,
               title,
-              instructions,
+              instructions: message,
             });
             step.done(undefined, session.id);
             return {
@@ -369,9 +375,10 @@ Tell the user what this means for what they asked, in your own words. Lead with 
               reason: `"${session.title}" was active ${ago(session.updatedAt)} outside Mimir and may be open on the user's screen. Ask before sending to it.`,
             };
           }
-          const step = begin("Sent instructions to", session_id, text);
+          const message = dispatch(text);
+          const step = begin("Sent instructions to", session_id, message);
           try {
-            const next = await sessions.message(session_id, text);
+            const next = await sessions.message(session_id, message);
             step.done();
             return { sessionId: next.id, status: statusLabel(next.status) };
           } catch (error) {
@@ -485,7 +492,6 @@ Tell the user what this means for what they asked, in your own words. Lead with 
       createdAt: Date.now(),
     };
     bus.publish({ type: "message.upsert", message: reply });
-    bus.publish({ type: "activity", activity: { busy: true, label: "Thinking" } });
     await this.deps.sessions.refresh().catch(() => undefined);
 
     const publishReply = () =>
@@ -501,9 +507,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
       publishReply();
       // Steps on a session show its chip in the UI; spoken progress needs the name.
       const title = sessionId ? this.deps.sessions.get(sessionId)?.title : undefined;
-      const spoken = title ? `${label} "${title}"` : label;
-      bus.publish({ type: "activity", activity: { busy: true, label: spoken } });
-      request.onProgress?.(spoken);
+      request.onProgress?.(title ? `${label} "${title}"` : label);
       return {
         done: (note, id) => {
           step.state = "done";
@@ -535,7 +539,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
         messages: request.internal
           ? [...this.history(), { role: "user", content: request.internal.context }]
           : this.history(),
-        tools: this.tools(request.source, begin, reply.id),
+        tools: this.tools(request.source, begin, reply.id, request.internal ? undefined : request.text),
         stopWhen: stepCountIs(8),
         onError: ({ error }) => {
           streamError = error;
@@ -556,7 +560,6 @@ Tell the user what this means for what they asked, in your own words. Lead with 
       reply.pending = false;
       store.saveMessage(reply);
       bus.publish({ type: "message.upsert", message: reply });
-      bus.publish({ type: "activity", activity: { busy: false } });
     }
     return reply;
   }

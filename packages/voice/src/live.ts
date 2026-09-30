@@ -2,6 +2,8 @@ import type { Caption, VoiceState } from "@openmimir/protocol";
 import { VOICE_INSTRUCTIONS } from "./prompt.ts";
 
 const API = "https://api.openai.com/v1";
+/** MIMIR_DEBUG=1 logs every GPT-Live event (except audio) and a count per session. */
+const DEBUG = Boolean(process.env.MIMIR_DEBUG);
 /** A turn is considered finished after this much transcript silence. */
 const TURN_GAP_MS = 1200;
 /** Queued announcements wait until nobody has spoken for this long. */
@@ -165,9 +167,9 @@ export class LiveVoice {
   }
 
   private handle(event: LiveEvent) {
-    this.eventCounts.set(event.type, (this.eventCounts.get(event.type) ?? 0) + 1);
-    if (process.env.MIMIR_DEBUG && !event.type.includes("audio")) {
-      this.log(`event ${JSON.stringify(event).slice(0, 400)}`);
+    if (DEBUG) {
+      this.eventCounts.set(event.type, (this.eventCounts.get(event.type) ?? 0) + 1);
+      if (!event.type.includes("audio")) this.log(`event ${JSON.stringify(event).slice(0, 400)}`);
     }
     switch (event.type) {
       case "session.input_audio.append":
@@ -191,7 +193,7 @@ export class LiveVoice {
       }
       case "session.closed":
         this.log(`session closed (${String(event.reason ?? "unknown")})`);
-        this.log(`events seen: ${JSON.stringify(Object.fromEntries(this.eventCounts))}`);
+        if (DEBUG) this.log(`events seen: ${JSON.stringify(Object.fromEntries(this.eventCounts))}`);
         this.closing?.resolve();
         this.teardown();
         break;
@@ -364,12 +366,6 @@ export class LiveVoice {
     if (!response.ok) throw new Error(`${response.status} ${(await response.text()).slice(0, 200)}`);
     const result = (await response.json()) as { text?: string };
     return result.text?.trim() ?? "";
-  }
-
-  /** Quiet context the voice model can use when asked, without speaking it now. */
-  context(text: string) {
-    if (!this.isLive) return;
-    this.send({ type: "session.thinking.append", delegation_id: null, content: clip(text) });
   }
 
   async close(): Promise<void> {

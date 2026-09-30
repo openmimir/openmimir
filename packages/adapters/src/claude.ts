@@ -266,8 +266,9 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   }
 
   async lastAssistantText(session: { externalId: string; directory: string }): Promise<string | undefined> {
-    const recent = await this.listRecent(40);
-    return recent.find((s) => s.externalId === session.externalId)?.lastText;
+    const file = this.files().find((f) => f.id === session.externalId);
+    if (!file) return undefined;
+    return (await this.summarize(file.path, file.id).catch(() => undefined))?.lastText;
   }
 
   async diff(session: { directory: string }): Promise<FileChange[]> {

@@ -1,5 +1,6 @@
 import { AGENT_LABELS, type AgentSession } from "@openmimir/protocol";
 import { Square, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { projectName, STATUS, timeAgo } from "../lib/format";
@@ -9,11 +10,31 @@ export function SessionDetail({
   session,
   onClose,
   onStop,
+  loadLatest,
 }: {
   session: AgentSession;
   onClose: () => void;
   onStop?: (id: string) => void;
+  /** Fetch the agent's latest reply; the list only carries a short preview. */
+  loadLatest?: (id: string) => Promise<string | null>;
 }) {
+  const [latest, setLatest] = useState<{ id: string; text: string | null } | null>(null);
+  const [loading, setLoading] = useState(false);
+  // Refetch when a different session is opened or this one moves on.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: updatedAt is the trigger
+  useEffect(() => {
+    if (!loadLatest) return;
+    let cancelled = false;
+    setLoading(true);
+    loadLatest(session.id)
+      .then((text) => !cancelled && setLatest({ id: session.id, text }))
+      .catch(() => undefined)
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [session.id, session.updatedAt, loadLatest]);
+  const lastText = (latest?.id === session.id ? latest.text : null) ?? session.lastText;
   const status = STATUS[session.status];
   const Icon = status.icon;
   return (
@@ -51,17 +72,19 @@ export function SessionDetail({
         )}
       </div>
       {session.error && <div className="text-sm text-failed">{session.error}</div>}
-      {session.lastText ? (
+      {lastText ? (
         <div className="scroll-thin min-h-0 overflow-y-auto">
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-well-500">
             Last message
           </div>
           <div className="prose-mimir text-sm leading-relaxed text-well-200">
-            <Markdown remarkPlugins={[remarkGfm]}>{session.lastText}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{lastText}</Markdown>
           </div>
         </div>
       ) : (
-        <div className="text-sm text-well-500">No messages seen yet.</div>
+        <div className="text-sm text-well-500">
+          {loading ? "Loading the last message…" : "No messages yet."}
+        </div>
       )}
       <div className="truncate font-mono text-[11px] text-well-500" title={session.directory}>
         {session.directory}

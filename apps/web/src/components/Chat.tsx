@@ -137,8 +137,8 @@ export function Chat({
                 What should your agents do?
               </div>
               <p className="mx-auto mt-3 max-w-lg text-well-400">
-                Mimir already sees your recent OpenCode, Claude Code and Codex sessions. Try “How is the
-                reachkit work going?” or “Add a setup section to the openmimir README.”
+                Mimir sees your OpenCode, Claude Code and Codex sessions, including the ones you started
+                yourself. Try “What was I working on yesterday?” or “How is the refactor going?”
               </p>
             </div>
           )}

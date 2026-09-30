@@ -16,7 +16,7 @@ import {
   SessionManager,
   Store,
 } from "@openmimir/core";
-import type { AgentKind, ForemanActivity, ServerInfo, Snapshot, VoiceState } from "@openmimir/protocol";
+import type { AgentKind, ServerInfo, Snapshot, VoiceState } from "@openmimir/protocol";
 import { type HistoryItem, LiveVoice } from "@openmimir/voice";
 
 export type App = Awaited<ReturnType<typeof createApp>>;
@@ -68,10 +68,8 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
     log(`[foreman] ${foremanError}`);
   }
 
-  let activity: ForemanActivity = { busy: false };
   let voiceState: VoiceState = { status: "off" };
   bus.subscribe((event) => {
-    if (event.type === "activity") activity = event.activity;
     if (event.type === "voice.state") voiceState = event.voice;
   });
 
@@ -156,7 +154,6 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
       sessions: sessions.list(),
       approvals: sessions.pendingApprovals(),
       voice: voiceState,
-      activity,
     };
   }
 

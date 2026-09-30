@@ -82,6 +82,10 @@ describe("Codex running detection", () => {
     jsonl([meta("second-turn"), event("task_started"), event("task_complete"), event("task_started")]),
   );
   write(join(day, "rollout-d-stale.jsonl"), jsonl([meta("stale"), event("task_started")]), 60 * 60_000);
+  write(
+    join(day, "rollout-e-subagent.jsonl"),
+    jsonl([{ type: "session_meta", payload: { id: "sub", cwd: "/repo", thread_source: "subagent" } }]),
+  );
 
   test("reads each session's state from its rollout", async () => {
     const byId = new Map((await adapter.listRecent(10)).map((s) => [s.externalId, s]));
@@ -91,5 +95,6 @@ describe("Codex running detection", () => {
     expect(byId.get("running")?.running).toBe(true);
     expect(byId.get("second-turn")?.running).toBe(true);
     expect(byId.get("stale")?.running).toBe(false);
+    expect(byId.has("sub")).toBe(false);
   });
 });

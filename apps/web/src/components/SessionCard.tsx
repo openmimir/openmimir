@@ -2,16 +2,14 @@ import { AGENT_LABELS, type AgentSession } from "@openmimir/protocol";
 import { Square } from "lucide-react";
 import { projectName, STATUS, timeAgo } from "../lib/format";
 
-/** A session as a card: compact in lists, large on the trainer screen. */
+/** A session in the desk side panel. */
 export function SessionCard({
   session,
-  big = false,
   onStop,
   onOpen,
   selected = false,
 }: {
   session: AgentSession;
-  big?: boolean;
   onStop?: (id: string) => void;
   onOpen?: (id: string) => void;
   selected?: boolean;
@@ -28,25 +26,23 @@ export function SessionCard({
       onKeyDown={(event) => {
         if (event.key === "Enter") onOpen?.(session.id);
       }}
-      className={`group relative shrink-0 cursor-pointer overflow-hidden rounded-xl border bg-well-900 transition ${
+      className={`group relative shrink-0 cursor-pointer overflow-hidden rounded-xl border bg-well-900 p-3 transition ${
         selected
           ? "border-accent-dim"
           : session.status === "needs_you"
             ? "border-needs/60"
             : "border-well-700 hover:border-well-500"
-      } ${big ? "p-5" : "p-3"}`}
+      }`}
     >
       <div className={`absolute inset-y-0 left-0 w-1 ${status.bg}`} />
       <div className="flex items-start justify-between gap-2 pl-1">
         <div className="min-w-0">
-          <div className={`truncate font-semibold text-well-50 ${big ? "text-2xl" : "text-sm"}`}>
-            {session.title}
-          </div>
-          <div className={`truncate text-well-400 ${big ? "text-base" : "text-xs"}`}>
+          <div className="truncate text-sm font-semibold text-well-50">{session.title}</div>
+          <div className="truncate text-xs text-well-400">
             {projectName(session.directory)} · {AGENT_LABELS[session.agent]} · {timeAgo(session.updatedAt)}
           </div>
         </div>
-        {session.status === "working" && onStop && !big && (
+        {session.status === "working" && onStop && (
           <button
             type="button"
             onClick={(event) => {
@@ -60,22 +56,19 @@ export function SessionCard({
           </button>
         )}
       </div>
-      <div
-        className={`mt-2 flex items-center gap-1.5 pl-1 font-semibold uppercase tracking-wide ${status.color} ${big ? "text-lg" : "text-[11px]"}`}
-      >
-        <Icon
-          size={big ? 20 : 13}
-          className={session.status === "working" ? "animate-spin [animation-duration:2s]" : ""}
-        />
-        {status.label}
-      </div>
-      {detail && (
-        <p
-          className={`mt-1.5 pl-1 leading-relaxed ${big ? "line-clamp-3 text-lg text-well-200" : "line-clamp-2 text-xs text-well-400"}`}
+      {/* Idle is the normal state; only spend space on states that matter. */}
+      {session.status !== "idle" && (
+        <div
+          className={`mt-2 flex items-center gap-1.5 pl-1 text-[11px] font-semibold uppercase tracking-wide ${status.color}`}
         >
-          {detail}
-        </p>
+          <Icon
+            size={13}
+            className={session.status === "working" ? "animate-spin [animation-duration:2s]" : ""}
+          />
+          {status.label}
+        </div>
       )}
+      {detail && <p className="mt-1.5 line-clamp-2 pl-1 text-xs leading-relaxed text-well-400">{detail}</p>}
     </div>
   );
 }

@@ -121,6 +121,12 @@ export function startServer(options: ServerOptions): Server<SocketData> {
       return json(result);
     }
 
+    const latest = pathname.match(/^\/api\/sessions\/([^/]+)\/latest$/);
+    if (latest && method === "GET") {
+      const text = await app.sessions.latestText(decodeURIComponent(latest[1] as string));
+      return json({ text: text ?? null });
+    }
+
     const stop = pathname.match(/^\/api\/sessions\/([^/]+)\/stop$/);
     if (stop && method === "POST")
       return json(await app.sessions.stop(decodeURIComponent(stop[1] as string)));

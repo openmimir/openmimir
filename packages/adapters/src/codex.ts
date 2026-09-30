@@ -134,6 +134,8 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
     for (const entry of parseJsonLines(head)) {
       const payload = (entry.payload ?? {}) as Json;
       if (entry.type === "session_meta") {
+        // Sub-agents (e.g. the reviewer behind a review) belong to their parent session.
+        if (payload.thread_source === "subagent") return undefined;
         externalId = String(payload.id ?? payload.session_id ?? "");
         directory = String(payload.cwd ?? "");
       }
@@ -247,8 +249,10 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
   }
 
   async lastAssistantText(session: { externalId: string }): Promise<string | undefined> {
-    const recent = await this.listRecent(40);
-    return recent.find((s) => s.externalId === session.externalId)?.lastText;
+    // Rollout file names end with the session id.
+    const file = this.recentFiles(SEARCH_FILES).find((f) => f.path.endsWith(`-${session.externalId}.jsonl`));
+    if (!file) return undefined;
+    return (await this.summarize(file.path).catch(() => undefined))?.lastText;
   }
 
   async diff(session: { directory: string }): Promise<FileChange[]> {

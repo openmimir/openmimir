@@ -32,6 +32,13 @@ export async function discoverOpenCodeService(
   }
 }
 
+interface OpenCodeSession {
+  id: string;
+  title?: string;
+  location: { directory: string };
+  time: { created: number; updated: number; idle?: number };
+}
+
 export interface OpenCodeAdapterOptions {
   /** Base URL of an OpenCode v2 server, e.g. http://127.0.0.1:4096 */
   url: string;
@@ -241,22 +248,22 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     }
   }
 
-  async listRecent(limit: number): Promise<SessionSummary[]> {
-    const [sessions, active] = await Promise.all([
-      this.request<{
-        data: Array<{
-          id: string;
-          title?: string;
-          location: { directory: string };
-          time: { created: number; updated: number; idle?: number };
-        }>;
-      }>("GET", `/api/session?limit=${limit}&order=desc&parentID=null`),
-      this.request<{ data: Record<string, unknown> }>("GET", "/api/session/active").catch(() => ({
+  private async rootSessions(limit: number) {
+    const result = await this.request<{ data: OpenCodeSession[] }>(
+      "GET",
+      `/api/session?limit=${limit}&order=desc&parentID=null`,
+    );
+    return result.data;
+  }
+
+  private async summaries(sessions: OpenCodeSession[]): Promise<SessionSummary[]> {
+    const active = await this.request<{ data: Record<string, unknown> }>("GET", "/api/session/active").catch(
+      () => ({
         data: {},
-      })),
-    ]);
+      }),
+    );
     return Promise.all(
-      sessions.data.map(async (session) => ({
+      sessions.map(async (session) => ({
         externalId: session.id,
         title: session.title || "Untitled session",
         directory: session.location.directory,
@@ -267,37 +274,19 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     );
   }
 
+  async listRecent(limit: number): Promise<SessionSummary[]> {
+    return this.summaries(await this.rootSessions(limit));
+  }
+
   async search(query: SessionQuery): Promise<SessionSummary[]> {
     // The whole root-session list is small (titles only), so match locally.
-    const [sessions, active] = await Promise.all([
-      this.request<{
-        data: Array<{
-          id: string;
-          title?: string;
-          location: { directory: string };
-          time: { created: number; updated: number; idle?: number };
-        }>;
-      }>("GET", "/api/session?limit=1000&order=desc&parentID=null"),
-      this.request<{ data: Record<string, unknown> }>("GET", "/api/session/active").catch(() => ({
-        data: {},
-      })),
-    ]);
-    const matches = sessions.data
+    const matches = (await this.rootSessions(1000))
       .filter((session) => matchesProject(session.location.directory, query.project))
       .map((session) => ({ session, score: scoreText(query.text, { title: session.title ?? "" }) }))
       .filter((m) => m.score > 0)
       .sort((a, b) => b.score - a.score || b.session.time.updated - a.session.time.updated)
       .slice(0, query.limit);
-    return Promise.all(
-      matches.map(async ({ session }) => ({
-        externalId: session.id,
-        title: session.title || "Untitled session",
-        directory: session.location.directory,
-        createdAt: session.time.created,
-        updatedAt: session.time.updated,
-        running: session.id in active.data || (await this.looksBusy(session)),
-      })),
-    );
+    return this.summaries(matches.map((m) => m.session));
   }
 
   /**

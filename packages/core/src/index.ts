@@ -9,6 +9,7 @@ export {
   mimirHome,
   saveConfig,
 } from "./config.ts";
+export { type DispatchInput, formatDispatch } from "./dispatch.ts";
 export { Foreman, type ForemanDeps, type ForemanRequest } from "./foreman.ts";
 export { createForemanModel } from "./model.ts";
 export { canApprove, classifyApproval, GUARDED_SHELL_COMMANDS } from "./policy.ts";

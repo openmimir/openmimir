@@ -56,8 +56,6 @@ function reducer(state: MimirState, action: Action): MimirState {
     }
     case "voice.state":
       return { ...state, snapshot: { ...snapshot, voice: event.voice } };
-    case "activity":
-      return { ...state, snapshot: { ...snapshot, activity: event.activity } };
     case "info":
       return { ...state, snapshot: { ...snapshot, info: event.info } };
   }
@@ -152,6 +150,11 @@ export function useMimir() {
     (id: string, decision: ApprovalDecision) => request(`/api/approvals/${id}`, { decision }),
     [request],
   );
+  const latestText = useCallback(
+    async (id: string) =>
+      (await request<{ text: string | null }>(`/api/sessions/${encodeURIComponent(id)}/latest`)).text,
+    [request],
+  );
   const stopSession = useCallback(
     (id: string) => request(`/api/sessions/${encodeURIComponent(id)}/stop`, {}),
     [request],
@@ -164,5 +167,6 @@ export function useMimir() {
     sendChat,
     resolveApproval,
     stopSession,
+    latestText,
   };
 }

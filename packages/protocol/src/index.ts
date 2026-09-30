@@ -125,12 +125,6 @@ export interface Caption {
   at: number;
 }
 
-export interface ForemanActivity {
-  busy: boolean;
-  /** Short human label, e.g. "Starting a session in openmimir". */
-  label?: string;
-}
-
 export interface ProjectRef {
   name: string;
   directory: string;
@@ -151,7 +145,6 @@ export interface Snapshot {
   sessions: AgentSession[];
   approvals: Approval[];
   voice: VoiceState;
-  activity: ForemanActivity;
 }
 
 /** Events pushed from the server to every connected interface. */
@@ -163,10 +156,7 @@ export type ServerEvent =
   | { type: "approval.upsert"; approval: Approval }
   | { type: "voice.state"; voice: VoiceState }
   | { type: "caption"; caption: Caption }
-  | { type: "activity"; activity: ForemanActivity }
   | { type: "info"; info: ServerInfo };
-
-export const PROTOCOL_VERSION = 1;
 
 /** Human wording for an approval, e.g. "run git push origin main". */
 export function describeAction(action: string, resources: string[]): string {

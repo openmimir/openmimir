@@ -37,6 +37,8 @@ export interface FileChange {
 
 export interface AdapterHealth {
   ok: boolean;
+  /** True when something answered at the URL, even if with an error. */
+  answered?: boolean;
   version?: string;
   error?: string;
 }

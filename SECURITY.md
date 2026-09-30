@@ -5,8 +5,9 @@ seriously.
 
 ## Reporting a vulnerability
 
-Please do not open a public issue. Email **security@openmimir.com** with a description, steps to
-reproduce, and the version (`mimir version`). We aim to reply within 72 hours.
+Please do not open a public issue. Report it privately through
+[GitHub security advisories](https://github.com/openmimir/openmimir/security/advisories/new) with a
+description, steps to reproduce, and the version (`mimir version`). We aim to reply within 72 hours.
 
 ## Security model
 

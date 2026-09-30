@@ -34,6 +34,8 @@ if (!bundle.success) {
   process.exit(1);
 }
 cpSync(web, join(dist, "web"), { recursive: true });
+// npm shows the README from the package folder; keep the repo root as the source of truth.
+for (const file of ["README.md", "LICENSE"]) cpSync(join(root, "../..", file), join(root, file));
 console.log("bundle  dist/index.js + dist/web");
 
 const targets = (process.env.MIMIR_TARGETS ?? "bun-darwin-arm64,bun-darwin-x64").split(",").filter(Boolean);

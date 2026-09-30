@@ -72,19 +72,25 @@ export class OpenCodeAdapter implements AgentAdapter {
       );
       return { ok: true, version: info.data?.version ?? info.version };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      const message = error instanceof Error ? error.message : String(error);
+      // A thrown fetch means nothing is listening; an HTTP error means something answered.
+      const answered = message.startsWith("OpenCode ");
+      return { ok: false, answered, error: message };
     }
   }
 
   async start(): Promise<void> {
     this.stopped = false;
     let health = await this.health();
-    if (!health.ok && this.options.manage) {
+    if (!health.ok && !health.answered && this.options.manage) {
       await this.spawn();
       health = await this.waitForHealth(15_000);
     }
     if (!health.ok) {
-      this.log(`not reachable at ${this.url}: ${health.error}`);
+      const hint = health.error?.includes("(401)")
+        ? " Another OpenCode server is on this port with a different password; change opencode.url or opencode.password in the Mimir config."
+        : "";
+      this.log(`not reachable at ${this.url}: ${health.error}${hint}`);
     } else {
       this.log(`connected to ${this.url}${health.version ? ` (v${health.version})` : ""}`);
     }

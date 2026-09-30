@@ -10,3 +10,5 @@ dist/
 *.db-wal
 coverage/
 .vite/
+apps/cli/README.md
+apps/cli/LICENSE

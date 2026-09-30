@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
-import { OpenCodeAdapter } from "@openmimir/adapters";
+import { discoverOpenCodeService, OpenCodeAdapter } from "@openmimir/adapters";
 import { configPath, loadConfig, type MimirConfig, saveConfig } from "@openmimir/core";
 import { AGENT_LABELS } from "@openmimir/protocol";
 import pkg from "../package.json" with { type: "json" };
@@ -161,19 +161,20 @@ async function doctor() {
   check(Boolean(foremanKey), `foreman ${config.foreman.model}`, foremanKey ? "" : `no ${provider} key`);
   const which = Bun.which("opencode");
   check(Boolean(which), "opencode binary", which ?? "install from https://opencode.ai");
-  const adapter = new OpenCodeAdapter({
-    url: config.opencode.url,
+  const service = config.opencode.url === "auto" ? await discoverOpenCodeService() : undefined;
+  const target = service ?? {
+    url: config.opencode.url === "auto" ? "http://127.0.0.1:4097" : config.opencode.url,
     username: config.opencode.username,
     password: config.opencode.password,
-  });
-  const health = await adapter.health();
+  };
+  const health = await new OpenCodeAdapter(target).health();
   check(
     health.ok || config.opencode.manage,
-    "OpenCode server",
+    service ? "OpenCode background service" : "OpenCode server",
     health.ok
-      ? `v${health.version ?? "?"} at ${config.opencode.url}`
+      ? `v${health.version ?? "?"} at ${target.url}`
       : config.opencode.manage
-        ? "not running, Mimir will start it"
+        ? "not running, Mimir will start its own"
         : health.error,
   );
   for (const [kind, enabled] of [

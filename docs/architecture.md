@@ -12,7 +12,7 @@ Mimir server (apps/cli) ◄─────────────────�
     ├─ SessionManager             sessions across agents, approvals, announcements
     ├─ Store                      SQLite in ~/.openmimir/mimir.db
     └─ Adapters (packages/adapters)
-          ├─ OpenCode v2 server (`opencode serve`, started by Mimir if needed)
+          ├─ OpenCode background service (the one the OpenCode app uses)
           ├─ Claude Code (`claude -p`, transcripts in ~/.claude/projects)
           └─ Codex (`codex exec`, rollouts in ~/.codex/sessions)
 ```
@@ -40,7 +40,10 @@ Mimir is the master thread above every agent session. Sessions are keyed `${agen
 sessions (`listRecent`), so the foreman sees what the user did at their desk, not just what Mimir
 started. Continuing an existing session is the same call as following up on one Mimir started.
 
-- **OpenCode** is driven over its HTTP API and event stream. It supports approvals, so Mimir adds
+- **OpenCode** is driven over the HTTP API and event stream of the user's OpenCode background service
+  (found with `opencode service status`). Using that server, not a separate one, matters: OpenCode
+  apps only update live from their own server, so messages written by another server stay invisible
+  until the session is reopened. Mimir starts a private `opencode serve` only if no service exists. It supports approvals, so Mimir adds
   session rules that force risky shell commands to ask (merged with the session's own rules).
 - **Claude Code** runs one headless turn per message (`claude -p --resume <id>`). Risky commands are
   blocked with `--disallowedTools`, since it cannot pause for Mimir's approval.

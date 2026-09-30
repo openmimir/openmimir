@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ProjectRef } from "@openmimir/protocol";
 
-export const CONFIG_VERSION = 1;
+export const CONFIG_VERSION = 2;
 
 export interface MimirConfig {
   version: number;
@@ -35,6 +35,10 @@ export interface MimirConfig {
     codex: boolean;
   };
   opencode: {
+    /**
+     * `auto` uses the user's OpenCode background service (`opencode service status`),
+     * so Mimir's work shows up live in their OpenCode app. Falls back to starting its own.
+     */
     url: string;
     username: string;
     password: string;
@@ -70,7 +74,7 @@ export function defaultConfig(): MimirConfig {
     keys: {},
     agents: { default: "opencode", claude: true, codex: true },
     opencode: {
-      url: "http://127.0.0.1:4097",
+      url: "auto",
       username: "opencode",
       password: randomSecret(18),
       manage: true,
@@ -100,8 +104,15 @@ function merge<T>(base: T, override: unknown): T {
 }
 
 function migrate(raw: Record<string, unknown>): Record<string, unknown> {
-  // Future config migrations go here, keyed on raw.version.
-  return { ...raw, version: CONFIG_VERSION };
+  const version = typeof raw.version === "number" ? raw.version : 0;
+  let next = { ...raw };
+  if (version < 2) {
+    // v2: use the user's OpenCode background service instead of a separate server,
+    // unless they pointed Mimir somewhere on purpose.
+    const opencode = (next.opencode ?? {}) as Record<string, unknown>;
+    if (opencode.url === "http://127.0.0.1:4097") next = { ...next, opencode: { ...opencode, url: "auto" } };
+  }
+  return { ...next, version: CONFIG_VERSION };
 }
 
 export function loadConfig(): MimirConfig {
@@ -119,6 +130,7 @@ export function loadConfig(): MimirConfig {
       writeFileSync(`${path}.v${version}.bak`, JSON.stringify(raw, null, 2));
     }
     config = merge(config, migrate(raw));
+    if (version < CONFIG_VERSION) saveConfig(config);
   } else {
     saveConfig(config);
   }

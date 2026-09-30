@@ -1,5 +1,11 @@
 import { join } from "node:path";
-import { type AgentAdapter, ClaudeCodeAdapter, CodexAdapter, OpenCodeAdapter } from "@openmimir/adapters";
+import {
+  type AgentAdapter,
+  ClaudeCodeAdapter,
+  CodexAdapter,
+  discoverOpenCodeService,
+  OpenCodeAdapter,
+} from "@openmimir/adapters";
 import {
   createForemanModel,
   EventBus,
@@ -19,13 +25,25 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
   const bus = new EventBus();
   const store = new Store(process.env.MIMIR_DB ?? join(mimirHome(), "mimir.db"));
 
-  const opencode = new OpenCodeAdapter({
-    url: config.opencode.url,
-    username: config.opencode.username,
-    password: config.opencode.password,
-    manage: config.opencode.manage,
-    log,
-  });
+  const service = config.opencode.url === "auto" ? await discoverOpenCodeService() : undefined;
+  if (config.opencode.url === "auto") {
+    log(
+      service
+        ? `[opencode] using your OpenCode background service at ${service.url}`
+        : "[opencode] no OpenCode background service found, starting a private server",
+    );
+  }
+  const opencode = new OpenCodeAdapter(
+    service
+      ? { ...service, manage: false, log }
+      : {
+          url: config.opencode.url === "auto" ? "http://127.0.0.1:4097" : config.opencode.url,
+          username: config.opencode.username,
+          password: config.opencode.password,
+          manage: config.opencode.manage,
+          log,
+        },
+  );
   const adapters = new Map<AgentKind, AgentAdapter>([["opencode", opencode]]);
   if (config.agents.claude && Bun.which("claude")) adapters.set("claude", new ClaudeCodeAdapter({ log }));
   if (config.agents.codex && Bun.which("codex")) adapters.set("codex", new CodexAdapter({ log }));

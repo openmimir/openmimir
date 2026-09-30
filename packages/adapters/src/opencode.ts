@@ -1,7 +1,36 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { readSSE } from "./sse.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
 import { Emitter } from "./util.ts";
+
+/**
+ * Find the user's OpenCode background service: the server their OpenCode app and
+ * terminal sessions talk to. Driving that one (instead of a separate server) means
+ * everything Mimir does shows up live in their OpenCode windows, and Mimir sees
+ * their sessions as they run.
+ */
+export async function discoverOpenCodeService(
+  binary = "opencode",
+): Promise<{ url: string; username: string; password: string } | undefined> {
+  const path = Bun.which(binary);
+  if (!path) return undefined;
+  try {
+    const proc = Bun.spawn([path, "service", "status"], { stdout: "pipe", stderr: "ignore" });
+    const output = (await new Response(proc.stdout).text()).trim();
+    await proc.exited;
+    const url = output.match(/https?:\/\/[^\s]+/)?.[0];
+    if (proc.exitCode !== 0 || !url) return undefined;
+    const config = Bun.file(join(homedir(), ".config", "opencode", "service.json"));
+    const password = (await config.exists())
+      ? ((await config.json()) as { password?: string }).password
+      : undefined;
+    return { url, username: "opencode", password: password ?? "" };
+  } catch {
+    return undefined;
+  }
+}
 
 export interface OpenCodeAdapterOptions {
   /** Base URL of an OpenCode v2 server, e.g. http://127.0.0.1:4096 */

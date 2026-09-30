@@ -26,8 +26,8 @@ listens while it talks, you can interrupt it, and it tells you when a session fi
   approvals.
 - **Voice** uses OpenAI's `gpt-live-1`. Your browser streams audio straight to OpenAI; the Mimir
   server brokers the session, listens in, and handles everything the voice model delegates.
-- **Sessions** are the agents' own sessions. OpenCode runs through its server (Mimir starts `opencode serve` if
-  needed); Claude Code and Codex run headless (`claude -p`, `codex exec`) and are picked up
+- **Sessions** are the agents' own sessions. OpenCode runs through your OpenCode background service
+  (the one your OpenCode app uses), so Mimir's messages show up live in your OpenCode windows; Claude Code and Codex run headless (`claude -p`, `codex exec`) and are picked up
   automatically when installed.
 
 ## Requirements
@@ -82,7 +82,7 @@ variables override it: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MIMIR_PORT`, `MIM
   "foreman": { "model": "openai/gpt-6.1-sol" },   // or "anthropic/<model>"
   "voice": { "model": "gpt-live-1", "voice": "marin" },
   "projectRoots": ["~/repos"],                     // git repos in here are available for new sessions
-  "opencode": { "url": "http://127.0.0.1:4097", "manage": true }
+  "opencode": { "url": "auto" }                    // your OpenCode background service
 }
 ```
 

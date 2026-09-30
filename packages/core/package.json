@@ -1,0 +1,17 @@
+{
+  "name": "@openmimir/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.69",
+    "@ai-sdk/openai": "^4.0.82",
+    "@openmimir/adapters": "workspace:*",
+    "@openmimir/protocol": "workspace:*",
+    "ai": "^7.0.123",
+    "zod": "^4.6.5"
+  }
+}

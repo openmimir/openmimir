@@ -73,7 +73,8 @@ async function serve() {
     if (stopping) return;
     stopping = true;
     log("shutting down");
-    server.stop();
+    // Close open browser connections too, so the port is free right away for a restart.
+    server.stop(true);
     await app.stop();
     process.exit(0);
   };

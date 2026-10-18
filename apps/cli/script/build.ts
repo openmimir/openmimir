@@ -8,6 +8,7 @@
  * Run from the repo root with `bun run build` (it builds the web UI first).
  */
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
 
@@ -63,6 +64,28 @@ function windowsDetails(): string[] {
   ];
 }
 
+/**
+ * On Windows, Bun 1.3.10 fails to unpack the runtimes it downloads for other targets
+ * ("Failed to extract executable"), so fetch the official build here and hand it over.
+ */
+async function windowsRuntime(target: string): Promise<string[]> {
+  if (process.platform !== "win32") return [];
+  const name = target.replace(/^bun-/, "").replace("arm64", "aarch64");
+  const dir = join(tmpdir(), "openmimir-bun-runtimes", Bun.version);
+  const exe = join(dir, `bun-${name}`, "bun.exe");
+  if (!existsSync(exe)) {
+    mkdirSync(dir, { recursive: true });
+    const url = `https://github.com/oven-sh/bun/releases/download/bun-v${Bun.version}/bun-${name}.zip`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Could not download ${url}: ${response.status}`);
+    const zip = join(dir, `bun-${name}.zip`);
+    await Bun.write(zip, response);
+    const tar = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+    await $`${tar} -xf ${zip} -C ${dir}`.quiet();
+  }
+  return [`--compile-executable-path=${exe}`];
+}
+
 const defaultTargets =
   process.platform === "win32" ? "bun-windows-x64-baseline" : "bun-darwin-arm64,bun-darwin-x64";
 const targets = (process.env.MIMIR_TARGETS ?? defaultTargets).split(",").filter(Boolean);
@@ -72,8 +95,9 @@ for (const target of targets) {
   const out = join(dist, "bin", name);
   const exe = windows ? "mimir.exe" : "mimir";
   mkdirSync(out, { recursive: true });
-  const details = windows ? windowsDetails() : [];
+  const details = windows ? [...windowsDetails(), ...(await windowsRuntime(target))] : [];
   await $`bun build ${join(root, "src/index.ts")} --compile --target=${target} ${details} --outfile ${join(out, exe)}`.quiet();
   cpSync(web, join(out, "web"), { recursive: true });
-  console.log(`binary  dist/bin/${name}/${exe}${details.length ? " (with icon and file details)" : ""}`);
+  const stamped = details.some((flag) => flag.startsWith("--windows-icon"));
+  console.log(`binary  dist/bin/${name}/${exe}${stamped ? " (with icon and file details)" : ""}`);
 }

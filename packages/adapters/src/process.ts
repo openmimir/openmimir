@@ -193,17 +193,22 @@ export function quoteForCmd(arg: string): string {
 
 type SpawnOptions = Omit<NonNullable<Parameters<typeof Bun.spawn>[1]>, "cmd">;
 
-/** Start a resolved command with extra arguments. */
+/**
+ * Start a resolved command with extra arguments. On Windows the child gets its own
+ * hidden console instead of sharing Mimir's window, so an agent can't retitle that
+ * window (Claude Code does) or print into it. Mimir stops its children itself.
+ */
 export function spawnCommand(command: Command, args: string[], options: SpawnOptions = {}): Subprocess {
+  const base = { windowsHide: true, ...options } as SpawnOptions;
   if (command.batch) {
     const comspec = process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe";
     const line = [command.argv[0] ?? "", ...args].map(quoteForCmd).join(" ");
     return Bun.spawn([comspec, "/d", "/s", "/c", `"${line}"`], {
-      ...options,
+      ...base,
       windowsVerbatimArguments: true,
     } as SpawnOptions);
   }
-  return Bun.spawn([...command.argv, ...args], options);
+  return Bun.spawn([...command.argv, ...args], base);
 }
 
 /** Write a prompt to a child's stdin and close it. Prompts never go on the command line. */
@@ -229,10 +234,7 @@ export function killTree(proc: Subprocess): void {
     try {
       Bun.spawnSync(
         [path.win32.join(root, "System32", "taskkill.exe"), "/pid", String(proc.pid), "/T", "/F"],
-        {
-          stdout: "ignore",
-          stderr: "ignore",
-        },
+        { stdout: "ignore", stderr: "ignore", windowsHide: true },
       );
     } catch {
       // Fall through to a plain kill.

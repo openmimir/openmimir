@@ -1,6 +1,6 @@
 {
   "name": "openmimir",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "One voice-first chat that controls all your coding agents. Hands-free, full duplex.",
   "license": "MIT",
   "type": "module",

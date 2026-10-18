@@ -1,3 +1,4 @@
+import { folderName } from "@openmimir/protocol";
 import type { AdapterEvent } from "./types.ts";
 
 /** Listener fan-out shared by all adapters. */
@@ -90,7 +91,7 @@ const STOP_WORDS = new Set([
 export function matchesProject(directory: string, project: string | undefined): boolean {
   if (!project) return true;
   const wanted = normalize(project);
-  const base = normalize(directory.split("/").filter(Boolean).pop() ?? "");
+  const base = normalize(folderName(directory));
   return base.includes(wanted) || wanted.includes(base);
 }
 

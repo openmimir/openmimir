@@ -3,6 +3,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { gitChanges } from "./git.ts";
+import {
+  type Command,
+  commandOutput,
+  killTree,
+  resolveCommand,
+  spawnCommand,
+  writeStdin,
+} from "./process.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
 import {
   Emitter,
@@ -17,7 +25,7 @@ import {
 
 export interface ClaudeCodeAdapterOptions {
   binary?: string;
-  /** Defaults to ~/.claude/projects. */
+  /** Defaults to ~/.claude/projects, or $CLAUDE_CONFIG_DIR/projects. */
   projectsDir?: string;
   log?: (message: string) => void;
 }
@@ -29,6 +37,11 @@ const STALE_MS = 10 * 60_000;
 /** Search reads at most this many transcripts (newest first). */
 const SEARCH_FILES = 400;
 
+/** Finds the Claude Code CLI, skipping the Claude desktop app's Windows alias of the same name. */
+export function findClaude(binary = "claude"): Command | undefined {
+  return resolveCommand(binary, { skip: (file) => /[\\/]WindowsApps[\\/]/i.test(file) });
+}
+
 /**
  * Drives Claude Code through its headless mode (`claude -p`) and reads past
  * sessions from its transcripts in ~/.claude/projects.
@@ -39,25 +52,34 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   private readonly binary: string;
   private readonly projectsDir: string;
   private readonly running = new Map<string, Subprocess>();
+  /** Sessions the user asked to stop, so their exit reads as interrupted rather than failed. */
+  private readonly interrupting = new Set<string>();
 
   constructor(options: ClaudeCodeAdapterOptions = {}) {
     super();
     this.binary = options.binary ?? "claude";
-    this.projectsDir = options.projectsDir ?? join(homedir(), ".claude", "projects");
+    this.projectsDir =
+      options.projectsDir ?? join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
   }
 
   async start() {}
 
   async stop() {
-    for (const proc of this.running.values()) proc.kill();
+    for (const proc of this.running.values()) killTree(proc);
     this.running.clear();
   }
 
+  private command(): Command {
+    const command = findClaude(this.binary);
+    if (!command) throw new Error("Claude Code is not installed (no `claude` on PATH).");
+    return command;
+  }
+
   async health(): Promise<AdapterHealth> {
-    const path = Bun.which(this.binary);
-    if (!path) return { ok: false, error: "claude is not installed" };
-    const proc = Bun.spawn([path, "--version"], { stdout: "pipe", stderr: "ignore" });
-    const version = (await new Response(proc.stdout).text()).trim().split(" ")[0];
+    const command = findClaude(this.binary);
+    if (!command) return { ok: false, error: "claude is not installed" };
+    const version = (await commandOutput(command, ["--version"]).catch(() => "")).split(" ")[0];
+    if (!version) return { ok: false, error: `could not run ${command.path}` };
     return { ok: true, version };
   }
 
@@ -199,18 +221,25 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     resume: string | undefined,
     onSessionId?: (value: { externalId: string }) => void,
   ) {
-    const args = [this.binary, "-p", prompt, "--output-format", "stream-json", "--verbose"];
+    // The prompt goes in on stdin: no quoting or length limits, on Windows included.
+    const args = ["-p", "--output-format", "stream-json", "--verbose"];
     if (resume) args.push("--resume", resume);
-    const disallowed = guardedCommands.map(toClaudeRule).filter(Boolean);
+    const disallowed = toClaudeRules(guardedCommands);
     if (disallowed.length > 0) args.push("--disallowedTools", ...disallowed);
-    const proc = Bun.spawn(args, { cwd: directory, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+    const proc = spawnCommand(this.command(), args, {
+      cwd: directory,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe",
+    });
+    writeStdin(proc, prompt);
     let sessionId = resume;
     let finished = false;
     if (sessionId) {
       this.running.set(sessionId, proc);
       this.emit({ type: "started", externalId: sessionId });
     }
-    for await (const line of lines(proc.stdout)) {
+    for await (const line of lines(proc.stdout as ReadableStream<Uint8Array>)) {
       let event: Json;
       try {
         event = JSON.parse(line) as Json;
@@ -242,14 +271,15 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     }
     await proc.exited;
     if (sessionId) this.running.delete(sessionId);
+    const interrupted = Boolean(sessionId && this.interrupting.delete(sessionId));
     if (!finished) {
-      const stderr = (await new Response(proc.stderr).text()).trim();
+      const stderr = (await new Response(proc.stderr as ReadableStream).text()).trim();
       if (!sessionId) {
         throw new Error(
           `Claude Code exited before starting: ${stderr.slice(0, 300) || `code ${proc.exitCode}`}`,
         );
       }
-      if (proc.signalCode) {
+      if (interrupted || proc.signalCode) {
         this.emit({ type: "interrupted", externalId: sessionId, reason: "user" });
       } else {
         this.emit({
@@ -262,7 +292,10 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   }
 
   async interrupt(externalId: string) {
-    this.running.get(externalId)?.kill();
+    const proc = this.running.get(externalId);
+    if (!proc) return;
+    this.interrupting.add(externalId);
+    killTree(proc);
   }
 
   async lastAssistantText(session: { externalId: string; directory: string }): Promise<string | undefined> {
@@ -295,9 +328,21 @@ function messageText(entry: Json): string {
     .trim();
 }
 
-/** `*git push*` becomes `Bash(git push:*)`, Claude Code's prefix rule syntax. */
-function toClaudeRule(glob: string): string {
-  const prefix = glob.replace(/^\*+|\*+$/g, "").trim();
-  if (!prefix || prefix.startsWith("|")) return "";
-  return `Bash(${prefix}:*)`;
+/**
+ * Mimir's command globs as Claude Code deny rules, for its Bash tool and for its
+ * PowerShell tool (the shell it uses on Windows): `*git push*` becomes
+ * `Bash(git push *)` and `PowerShell(git push *)`. Claude Code matches PowerShell
+ * aliases to their cmdlets, so `PowerShell(Remove-Item *-r*)` also stops `rm -r`.
+ */
+export function toClaudeRules(globs: string[]): string[] {
+  const rules = new Set<string>();
+  for (const glob of globs) {
+    const core = glob.replace(/^\*+|\*+$/g, "").trim();
+    // Rules match from the start of a command; pipes and flags are not command starts.
+    if (!core || core.startsWith("|") || core.startsWith("-")) continue;
+    const pattern = core.includes("*") ? `${core}*` : `${core} *`;
+    rules.add(`Bash(${pattern})`);
+    rules.add(`PowerShell(${pattern})`);
+  }
+  return [...rules];
 }

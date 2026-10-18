@@ -20,3 +20,73 @@ jobs:
       - run: bun run build
         env:
           MIMIR_TARGETS: bun-darwin-arm64
+      - name: Platform check (how Mimir finds and runs agents)
+        run: bun scripts/platform-check.ts
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - name: Build mimir.exe (with icon and file details)
+        run: bun run build
+        env:
+          MIMIR_TARGETS: bun-windows-x64-baseline,bun-windows-arm64
+      - name: Install the agents the way users do
+        shell: pwsh
+        run: |
+          irm https://claude.ai/install.ps1 | iex
+          npm install -g @openai/codex opencode-ai
+          "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Platform check (how Mimir finds and runs agents)
+        run: bun scripts/platform-check.ts
+      - name: Package and test the installer (PowerShell 5.1 and 7)
+        shell: pwsh
+        run: |
+          $dist = "apps\cli\dist\bin"
+          $rel = "$env:RUNNER_TEMP\release"
+          New-Item -ItemType Directory -Path $rel -Force | Out-Null
+          Compress-Archive -Path "$dist\windows-x64\mimir.exe", "$dist\windows-x64\web" -DestinationPath "$rel\mimir-windows-x64.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$rel\mimir-windows-x64.zip").Hash.ToLower()
+          "$hash  mimir-windows-x64.zip" | Out-File -FilePath "$rel\checksums.txt" -Encoding ascii
+          $server = Start-Process -PassThru -NoNewWindow python -ArgumentList "-m", "http.server", "8765", "--directory", $rel
+          Start-Sleep -Seconds 2
+          $env:MIMIR_DOWNLOAD_BASE = "http://127.0.0.1:8765"
+          # Piped into Invoke-Expression, exactly like `irm https://openmimir.com/install.ps1 | iex`.
+          $installer = "$PWD\apps\site\public\install.ps1"
+          foreach ($shell in @("powershell", "pwsh")) {
+            $env:MIMIR_INSTALL_DIR = "$env:RUNNER_TEMP\install-$shell"
+            & $shell -NoProfile -Command "Get-Content -Raw '$installer' | Invoke-Expression"
+            $version = & "$env:MIMIR_INSTALL_DIR\mimir.exe" version
+            if (-not $version) { throw "$shell install did not produce a working mimir.exe" }
+            Write-Host "$shell installed mimir $version"
+            # Running it again updates in place.
+            & $shell -NoProfile -Command "Get-Content -Raw '$installer' | Invoke-Expression"
+            if (-not (Test-Path "$env:MIMIR_INSTALL_DIR\web\index.html")) { throw "$shell reinstall lost the web UI" }
+          }
+          Stop-Process -Id $server.Id
+      - name: Start mimir.exe and load the app
+        shell: pwsh
+        run: |
+          $env:MIMIR_HOME = "$env:RUNNER_TEMP\mimir-home"
+          $env:MIMIR_PORT = "4799"
+          $exe = "$env:RUNNER_TEMP\install-pwsh\mimir.exe"
+          & $exe doctor
+          $p = Start-Process -PassThru -FilePath $exe -ArgumentList "serve" -RedirectStandardOutput "$env:RUNNER_TEMP\serve.log" -RedirectStandardError "$env:RUNNER_TEMP\serve.err"
+          $token = $null
+          for ($i = 0; $i -lt 30 -and -not $token; $i++) {
+            Start-Sleep -Seconds 1
+            try { $token = (Invoke-RestMethod http://127.0.0.1:4799/api/bootstrap).token } catch {}
+          }
+          Get-Content "$env:RUNNER_TEMP\serve.log"
+          if (-not $token) { Get-Content "$env:RUNNER_TEMP\serve.err"; throw "mimir.exe did not start" }
+          $page = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4799/).Content
+          if ($page -notmatch "<title>") { throw "no web UI" }
+          $snapshot = Invoke-RestMethod -Headers @{ "x-mimir-token" = $token } http://127.0.0.1:4799/api/snapshot
+          Write-Host "agents: $(($snapshot.info.agents | ForEach-Object { "$($_.kind)=$($_.available)" }) -join ', ')"
+          Stop-Process -Id $p.Id

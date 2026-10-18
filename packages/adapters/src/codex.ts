@@ -3,6 +3,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { gitChanges } from "./git.ts";
+import {
+  type Command,
+  commandOutput,
+  killTree,
+  resolveCommand,
+  spawnCommand,
+  writeStdin,
+} from "./process.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
 import {
   Emitter,
@@ -17,7 +25,7 @@ import {
 
 export interface CodexAdapterOptions {
   binary?: string;
-  /** Defaults to ~/.codex/sessions. */
+  /** Defaults to ~/.codex/sessions, or $CODEX_HOME/sessions. */
   sessionsDir?: string;
   log?: (message: string) => void;
 }
@@ -39,25 +47,34 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
   private readonly binary: string;
   private readonly sessionsDir: string;
   private readonly running = new Map<string, Subprocess>();
+  /** Sessions the user asked to stop, so their exit reads as interrupted rather than failed. */
+  private readonly interrupting = new Set<string>();
 
   constructor(options: CodexAdapterOptions = {}) {
     super();
     this.binary = options.binary ?? "codex";
-    this.sessionsDir = options.sessionsDir ?? join(homedir(), ".codex", "sessions");
+    this.sessionsDir =
+      options.sessionsDir ?? join(process.env.CODEX_HOME || join(homedir(), ".codex"), "sessions");
   }
 
   async start() {}
 
   async stop() {
-    for (const proc of this.running.values()) proc.kill();
+    for (const proc of this.running.values()) killTree(proc);
     this.running.clear();
   }
 
+  private command(): Command {
+    const command = resolveCommand(this.binary);
+    if (!command) throw new Error("Codex is not installed (no `codex` on PATH).");
+    return command;
+  }
+
   async health(): Promise<AdapterHealth> {
-    const path = Bun.which(this.binary);
-    if (!path) return { ok: false, error: "codex is not installed" };
-    const proc = Bun.spawn([path, "--version"], { stdout: "pipe", stderr: "ignore" });
-    const version = (await new Response(proc.stdout).text()).trim().split(" ").pop();
+    const command = resolveCommand(this.binary);
+    if (!command) return { ok: false, error: "codex is not installed" };
+    const version = (await commandOutput(command, ["--version"]).catch(() => "")).split(" ").pop();
+    if (!version) return { ok: false, error: `could not run ${command.path}` };
     return { ok: true, version };
   }
 
@@ -187,17 +204,24 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
     resume: string | undefined,
     onSessionId?: (value: { externalId: string }) => void,
   ) {
+    // `-` reads the prompt from stdin: no quoting or length limits, on Windows included.
     const args = resume
-      ? [this.binary, "exec", "resume", resume, "--json", "--skip-git-repo-check", prompt]
-      : [this.binary, "exec", "--json", "--skip-git-repo-check", "-C", directory, prompt];
-    const proc = Bun.spawn(args, { cwd: directory, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+      ? ["exec", "resume", resume, "--json", "--skip-git-repo-check", "-"]
+      : ["exec", "--json", "--skip-git-repo-check", "-C", directory, "-"];
+    const proc = spawnCommand(this.command(), args, {
+      cwd: directory,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe",
+    });
+    writeStdin(proc, prompt);
     let threadId = resume;
     let finished = false;
     if (threadId) {
       this.running.set(threadId, proc);
       this.emit({ type: "started", externalId: threadId });
     }
-    for await (const line of lines(proc.stdout)) {
+    for await (const line of lines(proc.stdout as ReadableStream<Uint8Array>)) {
       let event: Json;
       try {
         event = JSON.parse(line) as Json;
@@ -230,11 +254,13 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
     }
     await proc.exited;
     if (threadId) this.running.delete(threadId);
+    const interrupted = Boolean(threadId && this.interrupting.delete(threadId));
     if (!finished) {
-      const stderr = (await new Response(proc.stderr).text()).trim();
+      const stderr = (await new Response(proc.stderr as ReadableStream).text()).trim();
       if (!threadId)
         throw new Error(`Codex exited before starting: ${stderr.slice(0, 300) || `code ${proc.exitCode}`}`);
-      if (proc.signalCode) this.emit({ type: "interrupted", externalId: threadId, reason: "user" });
+      if (interrupted || proc.signalCode)
+        this.emit({ type: "interrupted", externalId: threadId, reason: "user" });
       else
         this.emit({
           type: "failed",
@@ -245,7 +271,10 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
   }
 
   async interrupt(externalId: string) {
-    this.running.get(externalId)?.kill();
+    const proc = this.running.get(externalId);
+    if (!proc) return;
+    this.interrupting.add(externalId);
+    killTree(proc);
   }
 
   async lastAssistantText(session: { externalId: string }): Promise<string | undefined> {

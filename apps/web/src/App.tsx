@@ -54,8 +54,8 @@ export function App() {
           <Orb mode="off" size={72} />
           <h1 className="mt-6 text-2xl font-semibold">This device is not paired</h1>
           <p className="mt-2 text-well-400">
-            Run <code className="rounded bg-well-800 px-1.5 py-0.5 font-mono">mimir pair</code> on the Mac
-            running Mimir and open the link here.
+            Run <code className="rounded bg-well-800 px-1.5 py-0.5 font-mono">mimir pair</code> on the
+            computer running Mimir and open the link here.
           </p>
         </div>
       </div>

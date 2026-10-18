@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
+import { killTree, resolveCommand, spawnCommand } from "./process.ts";
 import { readSSE } from "./sse.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
 import { Emitter, matchesProject, type SessionQuery, scoreText } from "./util.ts";
@@ -14,15 +15,22 @@ import { Emitter, matchesProject, type SessionQuery, scoreText } from "./util.ts
 export async function discoverOpenCodeService(
   binary = "opencode",
 ): Promise<{ url: string; username: string; password: string } | undefined> {
-  const path = Bun.which(binary);
-  if (!path) return undefined;
+  const command = resolveCommand(binary);
+  if (!command) return undefined;
   try {
-    const proc = Bun.spawn([path, "service", "status"], { stdout: "pipe", stderr: "ignore" });
-    const output = (await new Response(proc.stdout).text()).trim();
+    const proc = spawnCommand(command, ["service", "status"], {
+      stdout: "pipe",
+      stderr: "ignore",
+      stdin: "ignore",
+    });
+    const timer = setTimeout(() => killTree(proc), 15_000);
+    const output = (await new Response(proc.stdout as ReadableStream).text()).trim();
     await proc.exited;
+    clearTimeout(timer);
     const url = output.match(/https?:\/\/[^\s]+/)?.[0];
     if (proc.exitCode !== 0 || !url) return undefined;
-    const config = Bun.file(join(homedir(), ".config", "opencode", "service.json"));
+    const configDir = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+    const config = Bun.file(join(configDir, "opencode", "service.json"));
     const password = (await config.exists())
       ? ((await config.json()) as { password?: string }).password
       : undefined;
@@ -139,7 +147,7 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     this.stopped = true;
     this.streamAbort?.abort();
     if (this.child) {
-      this.child.kill();
+      killTree(this.child);
       await this.child.exited.catch(() => undefined);
       this.child = undefined;
     }
@@ -149,9 +157,15 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     const port = new URL(this.url).port || "4096";
     const hostname = new URL(this.url).hostname;
     const binary = this.options.binary ?? "opencode";
+    const command = resolveCommand(binary);
+    if (!command) {
+      this.log(`could not start OpenCode: \`${binary}\` is not on PATH`);
+      return;
+    }
     this.log(`starting \`${binary} serve --port ${port}\``);
     try {
-      this.child = Bun.spawn([binary, "serve", "--port", port, "--hostname", hostname], {
+      this.child = spawnCommand(command, ["serve", "--port", port, "--hostname", hostname], {
+        stdin: "ignore",
         env: {
           ...process.env,
           OPENCODE_SERVER_PASSWORD: this.options.password ?? "",

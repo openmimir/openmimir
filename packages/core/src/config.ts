@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ProjectRef } from "@openmimir/protocol";
@@ -79,14 +79,46 @@ export function defaultConfig(): MimirConfig {
       password: randomSecret(18),
       manage: true,
     },
-    projectRoots: [join(homedir(), "repos")],
+    projectRoots: defaultProjectRoots(),
     projects: [],
   };
 }
 
+/** Folders people commonly keep their repositories in, of those that exist here. */
+export function defaultProjectRoots(home = homedir(), platform = process.platform): string[] {
+  const candidates = [
+    "repos",
+    "code",
+    "dev",
+    "Developer",
+    "projects",
+    "src",
+    "git",
+    "workspace",
+    join("source", "repos"), // Visual Studio's default on Windows
+    join("Documents", "GitHub"), // GitHub Desktop's default
+  ].map((dir) => join(home, dir));
+  if (platform === "win32") candidates.push("C:\\dev", "C:\\code", "C:\\src", "C:\\repos", "C:\\projects");
+  const found: string[] = [];
+  const seen = new Set<string>();
+  for (const dir of candidates) {
+    try {
+      const stat = statSync(dir);
+      // Case-insensitive file systems list "code" and "Code" as one folder.
+      const key = `${stat.dev}:${stat.ino}`;
+      if (!stat.isDirectory() || seen.has(key)) continue;
+      seen.add(key);
+      found.push(dir);
+    } catch {
+      // Not there.
+    }
+  }
+  return found.length > 0 ? found : [join(home, "repos")];
+}
+
 export function expandHome(path: string): string {
   if (path === "~") return homedir();
-  if (path.startsWith("~/")) return join(homedir(), path.slice(2));
+  if (path.startsWith("~/") || path.startsWith("~\\")) return join(homedir(), path.slice(2));
   return resolve(path);
 }
 
@@ -165,5 +197,6 @@ export function saveConfig(config: MimirConfig): void {
   mkdirSync(home, { recursive: true });
   const path = configPath();
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
-  chmodSync(path, 0o600);
+  // Keys live here. On Windows the user profile is already private to the user.
+  if (process.platform !== "win32") chmodSync(path, 0o600);
 }

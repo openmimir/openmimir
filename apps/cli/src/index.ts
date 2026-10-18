@@ -2,7 +2,8 @@
 import { existsSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
-import { discoverOpenCodeService, OpenCodeAdapter } from "@openmimir/adapters";
+import { fileURLToPath } from "node:url";
+import { discoverOpenCodeService, findClaude, OpenCodeAdapter, resolveCommand } from "@openmimir/adapters";
 import { configPath, loadConfig, type MimirConfig, saveConfig } from "@openmimir/core";
 import { AGENT_LABELS } from "@openmimir/protocol";
 import pkg from "../package.json" with { type: "json" };
@@ -18,7 +19,7 @@ function log(message: string) {
 
 function webDir(): string {
   if (process.env.MIMIR_WEB_DIR) return process.env.MIMIR_WEB_DIR;
-  const here = dirname(new URL(import.meta.url).pathname);
+  const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     join(here, "web"), // npm bundle: dist/index.js + dist/web
     join(dirname(process.execPath), "web"), // standalone binary next to web/
@@ -80,6 +81,11 @@ async function serve() {
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+  if (process.platform === "win32") {
+    // Closing the console window (SIGHUP) or Ctrl+Break: stop the agents Mimir started too.
+    process.on("SIGHUP", shutdown);
+    process.on("SIGBREAK", shutdown);
+  }
 }
 
 function ask(question: string, fallback?: string): string {
@@ -134,7 +140,9 @@ function pair() {
     console.log(`  https://${host}/pair?code=${config.server.pairingSecret}`);
   }
   if (config.server.host === "127.0.0.1" || config.server.host === "localhost") {
-    console.log(`  (Mimir only listens on this Mac. Put Tailscale Serve or Cloudflare Tunnel in front of`);
+    console.log(
+      `  (Mimir only listens on this computer. Put Tailscale Serve or Cloudflare Tunnel in front of`,
+    );
     console.log(
       `   port ${config.server.port}, and add its hostname to server.allowedHosts in ${configPath()}.)`,
     );
@@ -159,7 +167,7 @@ async function doctor() {
   const foremanKey =
     provider === "openai" ? config.keys.openai : provider === "anthropic" ? config.keys.anthropic : undefined;
   check(Boolean(foremanKey), `foreman ${config.foreman.model}`, foremanKey ? "" : `no ${provider} key`);
-  const which = Bun.which("opencode");
+  const which = resolveCommand("opencode")?.path;
   check(Boolean(which), "opencode binary", which ?? "install from https://opencode.ai");
   const service = config.opencode.url === "auto" ? await discoverOpenCodeService() : undefined;
   const target = service ?? {
@@ -181,13 +189,15 @@ async function doctor() {
     ["claude", config.agents.claude],
     ["codex", config.agents.codex],
   ] as const) {
-    const path = Bun.which(kind);
+    const path = (kind === "claude" ? findClaude() : resolveCommand(kind))?.path;
     check(
       Boolean(path) || !enabled,
       `${AGENT_LABELS[kind]}`,
       !enabled ? "turned off" : (path ?? "not installed (optional)"),
     );
   }
+  const git = resolveCommand("git")?.path;
+  check(Boolean(git), "git", git ?? "not installed (needed to show Claude Code and Codex changes)");
   if (config.keys.openai) {
     const response = await fetch(`https://api.openai.com/v1/models/${config.voice.model}`, {
       headers: { authorization: `Bearer ${config.keys.openai}` },

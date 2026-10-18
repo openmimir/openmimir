@@ -1,0 +1,8 @@
+# Keep LF everywhere, so Windows checkouts lint, test and build like macOS ones.
+* text=auto eol=lf
+*.ico binary
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.mp3 binary
+*.wav binary

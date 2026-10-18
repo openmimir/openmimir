@@ -142,7 +142,10 @@ const server = Bun.serve({
 });
 
 // Claude Code in a throwaway config folder, talking to the scripted model.
-const root = realpathSync(mkdtempSync(join(tmpdir(), "mimir claude check ")));
+// The long form of the path: Claude Code on Windows doesn't count files under an 8.3 short
+// path (C:\Users\RUNNER~1\..., the CI runner's temp folder) as inside the project when
+// accepting edits. Bun's plain realpathSync keeps short names.
+const root = realpathSync.native(mkdtempSync(join(tmpdir(), "mimir claude check ")));
 const config = join(root, "config");
 const project = join(root, "my app ü");
 mkdirSync(config, { recursive: true });
@@ -281,7 +284,10 @@ await scenario("'always' covers the rest of the session", async () => {
   const outcome = await end;
   if (outcome.type === "permission.asked") {
     await adapter.replyPermission(sessionId, outcome.requestId, "reject");
-    fail("a later turn of the session edits without asking", "it asked again");
+    fail(
+      "a later turn of the session edits without asking",
+      `it asked again: ${outcome.action} ${outcome.resources.join(" ")} ${outcome.message ?? ""}`,
+    );
     return;
   }
   check(

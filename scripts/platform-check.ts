@@ -3,9 +3,10 @@
  * Checks how Mimir finds and runs coding agents on this machine. Runs in CI on
  * macOS and Windows, and on a fresh Windows install before a release.
  *
- *   bun scripts/platform-check.ts
+ *   bun scripts/platform-check.ts            # finding and running agents, no model calls
+ *   bun scripts/platform-check.ts --agents   # also start a real headless session in each agent
  *
- * It installs nothing and calls no models. Exits non-zero when a check fails.
+ * It installs nothing. Exits non-zero when a check fails.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -23,6 +24,7 @@ import {
 } from "../packages/adapters/src/index.ts";
 import { writeStdin } from "../packages/adapters/src/process.ts";
 import { lines } from "../packages/adapters/src/util.ts";
+import { GUARDED_SHELL_COMMANDS } from "../packages/core/src/policy.ts";
 
 const isWindows = process.platform === "win32";
 let failures = 0;
@@ -158,7 +160,46 @@ if (process.argv.includes("--hang")) {
   rmSync(root, { recursive: true, force: true });
 }
 
-// 3. OpenCode: version and background service.
+// 3. Optional (--agents): start a real headless session in each installed agent, with all
+// of Mimir's guard rules. Without a login the agent fails right after starting, which still
+// proves the command line, the guard rules and the prompt on stdin are accepted.
+if (process.argv.includes("--agents")) {
+  const dir = mkdtempSync(join(tmpdir(), "mimir agent check ü-"));
+  for (const adapter of [new ClaudeCodeAdapter(), new CodexAdapter()]) {
+    if (!(await adapter.health()).ok) continue;
+    const outcome = new Promise<string>((resolve) => {
+      adapter.onEvent((event) => {
+        if (event.type === "succeeded") resolve("finished a turn");
+        if (event.type === "failed") resolve(`stopped: ${event.error.split("\n")[0]?.slice(0, 120)}`);
+      });
+      setTimeout(() => resolve("still running after 90s"), 90_000);
+    });
+    try {
+      const { externalId } = await adapter.createSession({
+        directory: dir,
+        title: "platform check",
+        prompt: 'Reply with the single word "ok". Do not run any commands.',
+        guardedCommands: GUARDED_SHELL_COMMANDS,
+      });
+      ok(`${adapter.kind} headless session starts`, `${externalId}; ${await outcome}`);
+    } catch (error) {
+      fail(
+        `${adapter.kind} headless session starts`,
+        error instanceof Error ? error.message.slice(0, 200) : String(error),
+      );
+    }
+    await adapter.stop();
+  }
+  // Agents may still be writing caches in there for a moment.
+  await Bun.sleep(1000);
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    info("agent check folder left behind", dir);
+  }
+}
+
+// 4. OpenCode: version and background service.
 const opencode = resolveCommand("opencode");
 if (opencode) {
   const problem = await openCodeVersionProblem(opencode);
@@ -167,7 +208,7 @@ if (opencode) {
   info("opencode background service", service ? service.url : "not running (Mimir starts its own server)");
 }
 
-// 4. Where the agents keep their history.
+// 5. Where the agents keep their history.
 for (const [label, dir] of [
   ["Claude Code history", join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects")],
   ["Codex history", join(process.env.CODEX_HOME || join(homedir(), ".codex"), "sessions")],

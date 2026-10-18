@@ -151,7 +151,8 @@ export function loadConfig(): MimirConfig {
   const path = configPath();
   let config = defaultConfig();
   if (existsSync(path)) {
-    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    // Notepad may save a byte order mark, which JSON.parse rejects.
+    const raw = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
     const version = typeof raw.version === "number" ? raw.version : 0;
     if (version > CONFIG_VERSION) {
       throw new Error(

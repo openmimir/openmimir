@@ -44,7 +44,7 @@ jobs:
           npm install -g @openai/codex @opencode/cli
           "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Platform check (how Mimir finds and runs agents)
-        run: bun scripts/platform-check.ts
+        run: bun scripts/platform-check.ts --agents
       - name: Package and test the installer (PowerShell 5.1 and 7)
         shell: pwsh
         run: |

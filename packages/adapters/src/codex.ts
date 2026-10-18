@@ -245,6 +245,8 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
       } else if (event.type === "turn.completed") {
         finished = true;
         this.emit({ type: "succeeded", externalId: threadId });
+      } else if (event.type === "error" && /^Reconnecting/i.test(String(event.message ?? ""))) {
+        // Codex retries dropped connections itself ("Reconnecting... 2/5"); the turn goes on.
       } else if (event.type === "turn.failed" || event.type === "error") {
         finished = true;
         const error =

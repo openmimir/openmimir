@@ -39,7 +39,8 @@ function readCookie(request: Request, name: string): string | undefined {
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json", "cache-control": "no-store" },
+    // Windows PowerShell 5.1 reads responses without a charset as Latin-1.
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
 }
 

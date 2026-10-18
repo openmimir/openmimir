@@ -22,13 +22,17 @@ export type AdapterEvent =
       action: string;
       resources: string[];
       message?: string;
+      /** What approving "always" would allow, when the agent offers that. */
+      always?: string;
     }
   | {
       type: "permission.replied";
       externalId: string;
       requestId: string;
       decision: PermissionDecision;
-    };
+    }
+  /** The request can no longer be answered, e.g. the run that asked has ended. */
+  | { type: "permission.expired"; externalId: string; requestId: string };
 
 export interface FileChange {
   file: string;
@@ -62,6 +66,11 @@ export interface AgentAdapter {
   readonly kind: AgentKind;
   /** Whether the agent can pause for approvals that Mimir answers. */
   readonly supportsApprovals: boolean;
+  /**
+   * Its approval requests live in a process Mimir started, so none survive a restart
+   * of Mimir (Claude Code). OpenCode's live on its server.
+   */
+  readonly approvalsEndWithRun?: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
   health(): Promise<AdapterHealth>;

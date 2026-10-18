@@ -67,6 +67,7 @@ How you work:
 Approvals:
 - Sessions sometimes pause to ask permission. Pending approvals are listed below.
 - "confirm" tier may be approved over voice, but only after you read the action back and the user explicitly says "confirm". "screen" tier can only be approved on a screen; tell the user it will wait for them.
+- Some approvals offer an "always" option, e.g. allowing all edits for the rest of the session. Mention it when a session keeps asking for the same kind of thing.
 - Rejecting is always allowed.`;
 
 const VOICE_NOTE = `This request came in by voice. A separate voice model will say your reply out loud and may paraphrase it. Reply in at most three short sentences of plain speech: no markdown, no lists, no code, no file paths unless essential. Numbers and names should be easy to say.
@@ -195,7 +196,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
       for (const a of approvals) {
         const session = this.deps.sessions.get(a.sessionId);
         lines.push(
-          `- [${a.id}] "${session?.title ?? a.sessionId}" wants: ${a.action} ${a.resources.slice(0, 3).join(", ")} [tier: ${a.tier}]${a.message ? ` - ${a.message.slice(0, 160)}` : ""}`,
+          `- [${a.id}] "${session?.title ?? a.sessionId}" wants: ${a.action} ${a.resources.slice(0, 3).join(", ")} [tier: ${a.tier}]${a.message ? ` - ${a.message.slice(0, 160)}` : ""}${a.always ? ` (approve_always would: ${a.always})` : ""}`,
         );
       }
     }
@@ -445,20 +446,20 @@ Tell the user what this means for what they asked, in your own words. Lead with 
       }),
       resolve_approval: tool({
         description:
-          "Approve or reject a pending approval. For voice requests on 'confirm' tier approvals, set user_confirmed=true only after the user explicitly said 'confirm' for this specific action.",
+          "Approve or reject a pending approval. For voice requests on 'confirm' tier approvals, set user_confirmed=true only after the user explicitly said 'confirm' for this specific action. Use approve_always only when the user asked for what the approval's always option says (e.g. 'allow all edits').",
         inputSchema: z.object({
           approval_id: z.string(),
-          decision: z.enum(["approve", "reject"]),
+          decision: z.enum(["approve", "approve_always", "reject"]),
           user_confirmed: z.boolean().default(false),
         }),
         execute: async ({ approval_id, decision, user_confirmed }) => {
           const approval = sessions.pendingApprovals().find((a) => a.id === approval_id);
           if (!approval) return { error: `No pending approval ${approval_id}` };
-          if (decision === "approve") {
+          if (decision !== "reject") {
             const check = canApprove(approval.tier, source, user_confirmed);
             if (!check.allowed) return { refused: true, reason: check.reason };
           }
-          const verb = decision === "approve" ? "Approved" : "Rejected";
+          const verb = decision === "reject" ? "Rejected" : "Approved";
           const step = begin(
             `${verb} ${describeAction(approval.action, approval.resources)}`,
             approval.sessionId,

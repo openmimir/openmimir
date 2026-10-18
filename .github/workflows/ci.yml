@@ -22,6 +22,10 @@ jobs:
           MIMIR_TARGETS: bun-darwin-arm64
       - name: Platform check (how Mimir finds and runs agents)
         run: bun scripts/platform-check.ts
+      - name: Claude Code end to end (the real CLI, a scripted model, no account)
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          bun scripts/claude-check.ts
 
   windows:
     runs-on: windows-latest
@@ -45,6 +49,8 @@ jobs:
           "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Platform check (how Mimir finds and runs agents)
         run: bun scripts/platform-check.ts --agents
+      - name: Claude Code end to end (the real CLI, a scripted model, no account; PowerShell included)
+        run: bun scripts/claude-check.ts
       - name: Package and test the installer (PowerShell 5.1 and 7)
         shell: pwsh
         run: |

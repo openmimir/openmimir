@@ -1,15 +1,25 @@
-import { readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { isAbsolute, join, relative } from "node:path";
 import type { Subprocess } from "bun";
 import { gitChanges } from "./git.ts";
 import {
   type Command,
   commandOutput,
+  endStdin,
   findAgentCommand,
   killTree,
   spawnCommand,
-  writeStdin,
+  writeLine,
 } from "./process.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
 import {
@@ -27,6 +37,10 @@ export interface ClaudeCodeAdapterOptions {
   binary?: string;
   /** Defaults to ~/.claude/projects, or $CLAUDE_CONFIG_DIR/projects. */
   projectsDir?: string;
+  /** Where Mimir keeps the settings file it adds to every run. Defaults to a private temp folder. */
+  settingsDir?: string;
+  /** Extra environment for Claude Code, on top of Mimir's own. */
+  env?: Record<string, string>;
   log?: (message: string) => void;
 }
 
@@ -36,6 +50,32 @@ type Json = Record<string, unknown>;
 const STALE_MS = 10 * 60_000;
 /** Search reads at most this many transcripts (newest first). */
 const SEARCH_FILES = 400;
+/**
+ * Tools that only work with someone at Claude Code's own screen. Without them Claude
+ * asks its questions in its reply, which Mimir passes on.
+ */
+const SCREEN_TOOLS = ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode"];
+
+/** One headless turn. */
+interface Run {
+  proc: Subprocess;
+  directory: string;
+  sessionId?: string;
+  /** The permission mode Claude Code started in (the user's own, unless Mimir set one). */
+  mode?: string;
+  /** Claude reported the turn's result; the process is on its way out. */
+  finished: boolean;
+  /** The user rejected a request, which ends the turn. */
+  rejected: boolean;
+}
+
+/** What "always" allowed for the rest of a session. Claude Code itself forgets it when a run ends. */
+interface Grants {
+  /** "Allow all edits", given while the session ran in Claude Code's default mode. */
+  acceptEdits: boolean;
+  allow: Set<string>;
+  dirs: Set<string>;
+}
 
 /** Finds the Claude Code CLI, also where its installer puts it when that isn't on PATH. */
 export function findClaude(binary = "claude"): Command | undefined {
@@ -44,14 +84,19 @@ export function findClaude(binary = "claude"): Command | undefined {
 
 /**
  * Drives Claude Code through its headless mode (`claude -p`) and reads past
- * sessions from its transcripts in ~/.claude/projects.
+ * sessions from its transcripts in ~/.claude/projects. Whatever Claude Code would
+ * ask permission for at the desk, it asks Mimir instead, over the channel its Agent
+ * SDK uses (`--permission-prompt-tool stdio`).
  */
 export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   readonly kind = "claude";
-  readonly supportsApprovals = false;
+  readonly supportsApprovals = true;
+  readonly approvalsEndWithRun = true;
   private readonly binary: string;
   private readonly projectsDir: string;
-  private readonly running = new Map<string, Subprocess>();
+  private settingsDir: string | undefined;
+  private readonly env: Record<string, string> | undefined;
+  private readonly running = new Map<string, Run>();
   /** Sessions the user asked to stop, so their exit reads as interrupted rather than failed. */
   private readonly interrupting = new Set<string>();
   /**
@@ -59,18 +104,26 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
    * finishing its turn, leaves a history that looks mid-turn; this says otherwise.
    */
   private readonly exitedAt = new Map<string, number>();
+  /** Permission requests waiting for the user, by Claude's request id. */
+  private readonly pending = new Map<string, { run: Run; input: unknown; suggestions: Json[] }>();
+  private readonly grants = new Map<string, Grants>();
 
   constructor(options: ClaudeCodeAdapterOptions = {}) {
     super();
     this.binary = options.binary ?? "claude";
     this.projectsDir =
       options.projectsDir ?? join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
+    this.settingsDir = options.settingsDir;
+    this.env = options.env;
   }
 
   async start() {}
 
   async stop() {
-    for (const proc of this.running.values()) killTree(proc);
+    for (const [id, run] of this.running) {
+      this.interrupting.add(id);
+      killTree(run.proc);
+    }
     this.running.clear();
   }
 
@@ -143,7 +196,7 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
         createdAt: file.ctime,
         // Headless runs Mimir started are known; for the user's own terminals, infer from the transcript.
         running:
-          this.running.has(file.id) ||
+          this.running.get(file.id)?.finished === false ||
           (midTurn && Date.now() - file.mtime < STALE_MS && !this.endedAfter(file)),
       });
     }
@@ -221,11 +274,14 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   }
 
   async prompt(session: { externalId: string; directory: string }, text: string, guardedCommands: string[]) {
-    if (this.running.has(session.externalId)) {
+    const current = this.running.get(session.externalId);
+    if (current && !current.finished) {
       throw new Error(
         "Claude Code is still working on this session. Wait for it to finish or stop it first.",
       );
     }
+    // The last turn is over; give its process a moment to exit before the next one starts.
+    if (current) await Promise.race([current.proc.exited, Bun.sleep(5_000)]);
     void this.run(session.directory, text, guardedCommands, session.externalId);
   }
 
@@ -237,23 +293,49 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     resume: string | undefined,
     onSessionId?: (value: { externalId: string }) => void,
   ) {
-    // The prompt goes in on stdin: no quoting or length limits, on Windows included.
-    const args = ["-p", "--output-format", "stream-json", "--verbose"];
+    const args = [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      // Messages in as JSON lines, so permission requests can be answered on the same pipe.
+      "--input-format",
+      "stream-json",
+      "--permission-prompt-tool",
+      "stdio",
+      "--settings",
+      this.settingsFile(guardedCommands),
+      "--disallowedTools",
+      ...SCREEN_TOOLS,
+    ];
     if (resume) args.push("--resume", resume);
-    const disallowed = toClaudeRules(guardedCommands);
-    if (disallowed.length > 0) args.push("--disallowedTools", ...disallowed);
+    const grants = resume ? this.grants.get(resume) : undefined;
+    // At launch, so it applies before Claude's first tool call.
+    if (grants?.acceptEdits) args.push("--permission-mode", "acceptEdits");
+    if (grants?.allow.size) args.push("--allowedTools", ...grants.allow);
+    if (grants?.dirs.size) args.push("--add-dir", ...grants.dirs);
     const proc = spawnCommand(this.command(), args, {
       cwd: directory,
       stdout: "pipe",
       stderr: "pipe",
       stdin: "pipe",
+      ...(this.env ? { env: { ...process.env, ...this.env } } : {}),
     });
-    writeStdin(proc, prompt);
-    let sessionId = resume;
-    let finished = false;
-    if (sessionId) {
-      this.running.set(sessionId, proc);
-      this.emit({ type: "started", externalId: sessionId });
+    const stderr = new Response(proc.stderr as ReadableStream).text().catch(() => "");
+    const run: Run = { proc, directory, sessionId: resume, finished: false, rejected: false };
+    // The prompt goes in on stdin: no quoting or length limits, on Windows included.
+    writeLine(
+      proc,
+      JSON.stringify({
+        type: "user",
+        message: { role: "user", content: prompt },
+        parent_tool_use_id: null,
+        session_id: "",
+      }),
+    );
+    if (resume) {
+      this.running.set(resume, run);
+      this.emit({ type: "started", externalId: resume });
     }
     for await (const line of lines(proc.stdout as ReadableStream<Uint8Array>)) {
       let event: Json;
@@ -262,40 +344,55 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
       } catch {
         continue;
       }
-      if (!sessionId && typeof event.session_id === "string") {
-        sessionId = event.session_id;
-        this.running.set(sessionId, proc);
-        onSessionId?.({ externalId: sessionId });
-        this.emit({ type: "started", externalId: sessionId });
+      if (event.type === "control_request") {
+        this.onControlRequest(run, event);
+        continue;
       }
+      if (!run.sessionId && typeof event.session_id === "string") {
+        run.sessionId = event.session_id;
+        this.running.set(run.sessionId, run);
+        onSessionId?.({ externalId: run.sessionId });
+        this.emit({ type: "started", externalId: run.sessionId });
+      }
+      const sessionId = run.sessionId;
       if (!sessionId) continue;
-      if (event.type === "assistant") {
+      if (event.type === "system" && event.subtype === "init") {
+        if (typeof event.permissionMode === "string") run.mode = event.permissionMode;
+      } else if (event.type === "assistant") {
         const text = messageText(event);
         if (text) this.emit({ type: "text", externalId: sessionId, text });
       } else if (event.type === "result") {
-        finished = true;
-        if (event.is_error) {
+        run.finished = true;
+        // Claude Code waits for more messages until its input closes.
+        endStdin(proc);
+        if (!event.is_error) {
+          this.emit({ type: "succeeded", externalId: sessionId });
+        } else if (run.rejected) {
+          this.emit({ type: "interrupted", externalId: sessionId, reason: "rejected" });
+        } else {
           this.emit({
             type: "failed",
             externalId: sessionId,
             error: String(event.result ?? event.subtype ?? "failed"),
           });
-        } else {
-          this.emit({ type: "succeeded", externalId: sessionId });
         }
       }
     }
     await proc.exited;
+    endStdin(proc);
+    this.expire(run);
+    const sessionId = run.sessionId;
     if (sessionId) {
-      this.running.delete(sessionId);
+      // A follow-up may already have started a new run of this session.
+      if (this.running.get(sessionId) === run) this.running.delete(sessionId);
       this.exitedAt.set(sessionId, Date.now());
     }
     const interrupted = Boolean(sessionId && this.interrupting.delete(sessionId));
-    if (!finished) {
-      const stderr = (await new Response(proc.stderr as ReadableStream).text()).trim();
+    if (!run.finished) {
+      const output = (await stderr).trim();
       if (!sessionId) {
         throw new Error(
-          `Claude Code exited before starting: ${stderr.slice(0, 300) || `code ${proc.exitCode}`}`,
+          `Claude Code exited before starting: ${output.slice(0, 300) || `code ${proc.exitCode}`}`,
         );
       }
       if (interrupted || proc.signalCode) {
@@ -304,17 +401,109 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
         this.emit({
           type: "failed",
           externalId: sessionId,
-          error: stderr.slice(0, 300) || `exit code ${proc.exitCode}`,
+          error: output.slice(0, 300) || `exit code ${proc.exitCode}`,
         });
       }
     }
   }
 
+  /** Claude Code asks before using a tool: turn that into an approval in Mimir. */
+  private onControlRequest(run: Run, event: Json) {
+    const requestId = String(event.request_id ?? "");
+    const request = (event.request ?? {}) as Json;
+    if (request.subtype !== "can_use_tool" || !run.sessionId) {
+      // Mimir registers nothing else (hooks, in-process MCP servers), so don't leave Claude waiting.
+      writeLine(
+        run.proc,
+        JSON.stringify({
+          type: "control_response",
+          response: { subtype: "error", request_id: requestId, error: "Not supported by OpenMimir." },
+        }),
+      );
+      return;
+    }
+    const suggestions = Array.isArray(request.permission_suggestions)
+      ? (request.permission_suggestions as Json[])
+      : [];
+    this.pending.set(requestId, { run, input: request.input, suggestions });
+    this.emit({
+      type: "permission.asked",
+      externalId: run.sessionId,
+      requestId,
+      ...describeRequest(request, run.directory),
+      always: describeGrants(suggestions),
+    });
+  }
+
+  /** Requests of a run that ended can no longer be answered. */
+  private expire(run: Run) {
+    for (const [requestId, pending] of this.pending) {
+      if (pending.run !== run) continue;
+      this.pending.delete(requestId);
+      if (run.sessionId) this.emit({ type: "permission.expired", externalId: run.sessionId, requestId });
+    }
+  }
+
+  /**
+   * Remember session-wide "always" grants, so later turns of the session have them too.
+   * "Allow all edits" only carries over from Claude Code's default mode, so it never
+   * replaces a mode the user chose (such as auto or plan).
+   */
+  private remember(externalId: string, suggestions: Json[], mode: string | undefined) {
+    const grants = this.grants.get(externalId) ?? {
+      acceptEdits: false,
+      allow: new Set<string>(),
+      dirs: new Set<string>(),
+    };
+    for (const suggestion of suggestions) {
+      // Other destinations are settings files, which Claude Code updates itself.
+      if (suggestion.destination !== "session") continue;
+      if (suggestion.type === "setMode" && suggestion.mode === "acceptEdits" && mode === "default") {
+        grants.acceptEdits = true;
+      }
+      if (
+        suggestion.type === "addRules" &&
+        suggestion.behavior === "allow" &&
+        Array.isArray(suggestion.rules)
+      ) {
+        for (const rule of suggestion.rules as Json[]) grants.allow.add(ruleText(rule));
+      }
+      if (suggestion.type === "addDirectories" && Array.isArray(suggestion.directories)) {
+        for (const dir of suggestion.directories) grants.dirs.add(String(dir));
+      }
+    }
+    this.grants.set(externalId, grants);
+  }
+
+  /**
+   * Mimir's ask rules for risky commands, as a settings file Claude Code merges with
+   * the user's own. Ask rules win over the user's allow rules and over bypass mode, and
+   * anything that would ask is refused if Mimir can't be reached. The file is named
+   * after its content and written in one step, so Claude never reads half of it.
+   */
+  private settingsFile(guardedCommands: string[]): string {
+    const content = `${JSON.stringify({ permissions: { ask: toClaudeRules(guardedCommands) } }, null, 2)}\n`;
+    this.settingsDir ??= mkdtempSync(join(tmpdir(), "openmimir-"));
+    const file = join(this.settingsDir, `claude-settings-${Bun.hash(content).toString(16)}.json`);
+    if (!existsSync(file)) {
+      mkdirSync(this.settingsDir, { recursive: true });
+      const temp = `${file}.${process.pid}.tmp`;
+      writeFileSync(temp, content);
+      try {
+        renameSync(temp, file);
+      } catch {
+        // Another run wrote the same file first.
+        rmSync(temp, { force: true });
+      }
+    }
+    return file;
+  }
+
   async interrupt(externalId: string) {
-    const proc = this.running.get(externalId);
-    if (!proc) return;
+    const run = this.running.get(externalId);
+    if (!run) return;
     this.interrupting.add(externalId);
-    killTree(proc);
+    killTree(run.proc);
   }
 
   async lastAssistantText(session: { externalId: string; directory: string }): Promise<string | undefined> {
@@ -327,8 +516,32 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     return gitChanges(session.directory);
   }
 
-  async replyPermission(_externalId: string, _requestId: string, _decision: PermissionDecision) {
-    throw new Error("Claude Code approvals are handled in Claude Code itself.");
+  async replyPermission(externalId: string, requestId: string, decision: PermissionDecision) {
+    const pending = this.pending.get(requestId);
+    if (!pending) {
+      this.emit({ type: "permission.expired", externalId, requestId });
+      throw new Error("Claude Code is no longer waiting for this: the run that asked has ended.");
+    }
+    this.pending.delete(requestId);
+    let response: Json;
+    if (decision === "reject") {
+      pending.run.rejected = true;
+      // Like pressing Esc in Claude Code: the turn stops and waits for the user.
+      response = { behavior: "deny", message: "The user rejected this in OpenMimir.", interrupt: true };
+    } else {
+      response = { behavior: "allow", updatedInput: pending.input };
+      if (decision === "always" && pending.suggestions.length > 0) {
+        response.updatedPermissions = pending.suggestions;
+        this.remember(externalId, pending.suggestions, pending.run.mode);
+      }
+    }
+    writeLine(
+      pending.run.proc,
+      JSON.stringify({
+        type: "control_response",
+        response: { subtype: "success", request_id: requestId, response },
+      }),
+    );
   }
 }
 
@@ -348,10 +561,10 @@ function messageText(entry: Json): string {
 }
 
 /**
- * Mimir's command globs as Claude Code deny rules, for its Bash tool and for its
- * PowerShell tool (the shell it uses on Windows): `*git push*` becomes
+ * Mimir's command globs as Claude Code permission rules, for its Bash tool and for
+ * its PowerShell tool (the shell it uses on Windows): `*git push*` becomes
  * `Bash(git push *)` and `PowerShell(git push *)`. Claude Code matches PowerShell
- * aliases to their cmdlets, so `PowerShell(Remove-Item *-r*)` also stops `rm -r`.
+ * aliases to their cmdlets, so `PowerShell(Remove-Item *-r*)` also covers `rm -r`.
  */
 export function toClaudeRules(globs: string[]): string[] {
   const rules = new Set<string>();
@@ -364,4 +577,88 @@ export function toClaudeRules(globs: string[]): string[] {
     rules.add(`PowerShell(${pattern})`);
   }
   return [...rules];
+}
+
+const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
+
+/** A Claude Code permission request in Mimir's terms (see describeAction and classifyApproval). */
+export function describeRequest(
+  request: Json,
+  directory: string,
+): { action: string; resources: string[]; message?: string } {
+  const tool = String(request.tool_name ?? "");
+  const input = (request.input ?? {}) as Json;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : undefined);
+  const path = text(input.file_path) ?? text(input.notebook_path) ?? text(input.path);
+  let action = "tool";
+  let resources = [text(request.display_name) ?? tool];
+  if (tool === "Bash" || tool === "PowerShell") {
+    action = "shell";
+    resources = [text(input.command) ?? ""];
+  } else if (EDIT_TOOLS.has(tool)) {
+    action = "edit";
+    resources = [path ? shortPath(path, directory) : ""];
+  } else if (tool === "Read" || tool === "Glob" || tool === "Grep") {
+    action = "read";
+    resources = [path ? shortPath(path, directory) : (text(input.pattern) ?? "")];
+  } else if (tool === "WebFetch") {
+    action = "webfetch";
+    resources = [text(input.url) ?? ""];
+  } else if (tool === "WebSearch") {
+    action = "websearch";
+    resources = [text(input.query) ?? ""];
+  }
+  const outside = request.decision_reason_type === "workingDir";
+  if (outside) action = "external_directory";
+  return {
+    action,
+    resources: resources.filter(Boolean),
+    message: text(input.description) ?? (outside ? text(request.decision_reason) : undefined),
+  };
+}
+
+/** Paths inside the session's folder are shown relative to it. */
+function shortPath(path: string, directory: string): string {
+  const inside = relative(directory, path);
+  return inside && !inside.startsWith("..") && !isAbsolute(inside) ? inside : path;
+}
+
+function ruleText(rule: Json): string {
+  return typeof rule.ruleContent === "string"
+    ? `${rule.toolName}(${rule.ruleContent})`
+    : String(rule.toolName);
+}
+
+/**
+ * Claude Code's own "don't ask again" options, in words, e.g. "Allow all edits in this
+ * session" or `Always allow "npm test" commands in this project`.
+ */
+export function describeGrants(suggestions: Json[]): string | undefined {
+  const parts: string[] = [];
+  for (const suggestion of suggestions) {
+    const where =
+      suggestion.destination === "session"
+        ? "in this session"
+        : suggestion.destination === "userSettings"
+          ? "everywhere"
+          : "in this project";
+    if (suggestion.type === "setMode" && suggestion.mode === "acceptEdits") {
+      parts.push("allow all edits in this session");
+    } else if (
+      suggestion.type === "addRules" &&
+      suggestion.behavior === "allow" &&
+      Array.isArray(suggestion.rules)
+    ) {
+      const rules = (suggestion.rules as Json[]).map((rule) => {
+        const shell = rule.toolName === "Bash" || rule.toolName === "PowerShell";
+        const content = typeof rule.ruleContent === "string" ? rule.ruleContent : "";
+        return shell && content ? `"${content.replace(/(:\*| \*)$/, "")}" commands` : ruleText(rule);
+      });
+      parts.push(`always allow ${rules.join(", ")} ${where}`);
+    } else if (suggestion.type === "addDirectories" && Array.isArray(suggestion.directories)) {
+      parts.push(`allow access to ${suggestion.directories.join(", ")} ${where}`);
+    }
+  }
+  const text = parts.join("; ");
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : undefined;
 }

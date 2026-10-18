@@ -43,7 +43,11 @@ class FakeAdapter implements AgentAdapter {
   async diff(): Promise<FileChange[]> {
     return [];
   }
-  async replyPermission() {}
+  async replyPermission(_externalId: string, _requestId: string, _decision: string) {
+    await this.onReply();
+  }
+  onReply: () => Promise<void> = async () => undefined;
+  approvalsEndWithRun = false;
   onEvent(listener: (event: Parameters<Parameters<AgentAdapter["onEvent"]>[0]>[0]) => void) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -159,6 +163,59 @@ describe("SessionManager", () => {
     adapter.recent = [summary("other")];
     await manager.refresh(true);
     expect(new Set(manager.list().map((s) => s.id))).toEqual(new Set(["opencode:other", "opencode:new"]));
+  });
+});
+
+describe("SessionManager approvals", () => {
+  async function asking() {
+    const ctx = setup();
+    await ctx.manager.start({ agent: "opencode", directory: "/repo", title: "Fix it", instructions: "fix" });
+    ctx.adapter.emit({
+      type: "permission.asked",
+      externalId: "new",
+      requestId: "req-1",
+      action: "edit",
+      resources: ["src/app.ts"],
+      always: "Allow all edits in this session",
+    });
+    return ctx;
+  }
+
+  test("a request becomes a pending approval, with the agent's always option", async () => {
+    const { manager, status } = await asking();
+    expect(manager.pendingApprovals()).toMatchObject([
+      { action: "edit", tier: "confirm", always: "Allow all edits in this session" },
+    ]);
+    expect(status("opencode:new")).toBe("needs_you");
+  });
+
+  test("a request whose run ended expires, and the session stops needing the user", async () => {
+    const { adapter, manager, store, status } = await asking();
+    const [approval] = manager.pendingApprovals();
+    adapter.emit({ type: "permission.expired", externalId: "new", requestId: "req-1" });
+    expect(manager.pendingApprovals()).toEqual([]);
+    expect(store.approval(approval?.id as string)?.status).toBe("expired");
+    expect(status("opencode:new")).toBe("idle");
+  });
+
+  test("answering a request that just expired reports that instead of failing", async () => {
+    const { adapter, manager } = await asking();
+    const [approval] = manager.pendingApprovals();
+    adapter.onReply = async () => {
+      adapter.emit({ type: "permission.expired", externalId: "new", requestId: "req-1" });
+      throw new Error("no longer waiting");
+    };
+    expect((await manager.resolveApproval(approval?.id as string, "approve")).status).toBe("expired");
+  });
+
+  test("requests that lived in a run of an earlier Mimir are expired on startup", async () => {
+    const { adapter, manager, store } = await asking();
+    expect(manager.pendingApprovals()).toHaveLength(1);
+    // An agent whose requests survive restarts (OpenCode's live on its server) keeps them.
+    const agents = new Map<AgentKind, AgentAdapter>([["opencode", adapter]]);
+    expect(new SessionManager(agents, store, new EventBus()).pendingApprovals()).toHaveLength(1);
+    adapter.approvalsEndWithRun = true;
+    expect(new SessionManager(agents, store, new EventBus()).pendingApprovals()).toEqual([]);
   });
 });
 

@@ -269,25 +269,25 @@ await scenario("'always' covers the rest of the session", async () => {
     GUARDED_SHELL_COMMANDS,
   );
   const request = await asked;
-  let done = next("succeeded", "failed");
+  const done = next("succeeded", "failed");
   await adapter.replyPermission(sessionId, request.requestId, "always");
   await done;
-  let askedAgain = false;
-  const stop = adapter.onEvent((event) => {
-    if (event.type === "permission.asked") askedAgain = true;
-  });
-  done = next("succeeded", "failed");
+  const end = next("succeeded", "failed", "permission.asked");
   await adapter.prompt(
     { externalId: sessionId, directory: project },
     `Again. ${call("Write", { file_path: file("b.txt"), content: "b" })}`,
     GUARDED_SHELL_COMMANDS,
   );
-  const end = await done;
-  stop();
+  const outcome = await end;
+  if (outcome.type === "permission.asked") {
+    await adapter.replyPermission(sessionId, outcome.requestId, "reject");
+    fail("a later turn of the session edits without asking", "it asked again");
+    return;
+  }
   check(
     "a later turn of the session edits without asking",
-    end.type === "succeeded" && !askedAgain && existsSync(file("b.txt")),
-    askedAgain ? "it asked again" : end.type,
+    outcome.type === "succeeded" && existsSync(file("b.txt")),
+    outcome.type,
   );
 });
 
@@ -341,11 +341,7 @@ for (const shell of shells) {
   for (const command of risky[shell] ?? []) {
     await scenario(`${shell}: ${command} waits for a screen, even in bypass mode`, async () => {
       const asked = next("permission.asked", "succeeded", "failed");
-      await adapter.prompt(
-        { externalId: sessionId, directory: project },
-        `Do it. ${call(shell, { command, description: "Risky" })}`,
-        GUARDED_SHELL_COMMANDS,
-      );
+      const id = await fresh(`Do it. ${call(shell, { command, description: "Risky" })}`);
       const request = await asked;
       if (request.type !== "permission.asked") {
         fail(`${shell}: ${command} waits for a screen, even in bypass mode`, `not asked: ${request.type}`);
@@ -353,7 +349,7 @@ for (const shell of shells) {
       }
       const tier = classifyApproval(request.action, request.resources);
       const end = next("interrupted", "succeeded", "failed");
-      await adapter.replyPermission(sessionId, request.requestId, "reject");
+      await adapter.replyPermission(id, request.requestId, "reject");
       await end;
       check(
         `${shell}: ${command} waits for a screen, even in bypass mode`,

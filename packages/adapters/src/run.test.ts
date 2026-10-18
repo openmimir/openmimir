@@ -37,7 +37,7 @@ const resume = args.includes("--resume") ? args[args.indexOf("--resume") + 1] : 
 const log = (name, value) => fs.appendFileSync(path.join(projects, name), JSON.stringify(value) + "\\n");
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
 let sessionId;
-let mode = "default";
+let mode = args.includes("--permission-mode") ? args[args.indexOf("--permission-mode") + 1] : "default";
 let writing;
 
 function finish(text) {
@@ -75,12 +75,9 @@ function onPrompt(prompt) {
   send({ type: "system", subtype: "init", session_id: sessionId, permissionMode: mode });
   // Like a run that fails before answering (e.g. not logged in): the transcript ends on the prompt.
   if (prompt.includes("[fail]")) process.exit(1);
-  // The model takes a moment to answer, so a mode change right after init applies.
-  setTimeout(() => {
-    const file = (/\\[write:([\\w.-]+)\\]/.exec(prompt) || [])[1];
-    if (file) write(file);
-    else if (!prompt.includes("[wait]")) finish("done");
-  }, 100);
+  const file = (/\\[write:([\\w.-]+)\\]/.exec(prompt) || [])[1];
+  if (file) write(file);
+  else finish("done");
 }
 
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
@@ -88,10 +85,6 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
   log("stdin.jsonl", message);
   if (message.type === "user") onPrompt(message.message.content);
-  if (message.type === "control_request") {
-    if (message.request.subtype === "set_permission_mode") mode = message.request.mode;
-    send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
-  }
   if (message.type === "control_response") {
     const answer = message.response.response;
     if (answer.behavior === "allow") {
@@ -243,14 +236,15 @@ describe("Claude Code headless runs", () => {
       { type: "setMode", mode: "acceptEdits", destination: "session" },
     ]);
 
-    // A new run of the same session: Mimir switches it to accept edits, so nothing is asked.
+    // A new run of the same session starts in accept-edits mode, so nothing is asked.
     done = next("succeeded");
     const before = events.filter((e) => e.type === "permission.asked").length;
     await adapter.prompt({ externalId, directory: work }, "[write:second.txt]", []);
     await done;
     expect(events.filter((e) => e.type === "permission.asked").length).toBe(before);
     expect(readFileSync(join(work, "second.txt"), "utf8")).toBe("written");
-    expect(stdinLog().some((m) => m.request?.subtype === "set_permission_mode")).toBe(true);
+    const args = JSON.parse(readFileSync(join(projects, `args-${externalId}.json`), "utf8")) as string[];
+    expect(args[args.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
   });
 
   test("a request whose run was stopped can no longer be answered", async () => {

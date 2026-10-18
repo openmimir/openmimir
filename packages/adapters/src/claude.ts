@@ -61,6 +61,8 @@ interface Run {
   proc: Subprocess;
   directory: string;
   sessionId?: string;
+  /** The permission mode Claude Code started in (the user's own, unless Mimir set one). */
+  mode?: string;
   /** Claude reported the turn's result; the process is on its way out. */
   finished: boolean;
   /** The user rejected a request, which ends the turn. */
@@ -69,6 +71,7 @@ interface Run {
 
 /** What "always" allowed for the rest of a session. Claude Code itself forgets it when a run ends. */
 interface Grants {
+  /** "Allow all edits", given while the session ran in Claude Code's default mode. */
   acceptEdits: boolean;
   allow: Set<string>;
   dirs: Set<string>;
@@ -104,7 +107,6 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   /** Permission requests waiting for the user, by Claude's request id. */
   private readonly pending = new Map<string, { run: Run; input: unknown; suggestions: Json[] }>();
   private readonly grants = new Map<string, Grants>();
-  private controlRequests = 0;
 
   constructor(options: ClaudeCodeAdapterOptions = {}) {
     super();
@@ -308,6 +310,8 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     ];
     if (resume) args.push("--resume", resume);
     const grants = resume ? this.grants.get(resume) : undefined;
+    // At launch, so it applies before Claude's first tool call.
+    if (grants?.acceptEdits) args.push("--permission-mode", "acceptEdits");
     if (grants?.allow.size) args.push("--allowedTools", ...grants.allow);
     if (grants?.dirs.size) args.push("--add-dir", ...grants.dirs);
     const proc = spawnCommand(this.command(), args, {
@@ -353,10 +357,7 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
       const sessionId = run.sessionId;
       if (!sessionId) continue;
       if (event.type === "system" && event.subtype === "init") {
-        // "Allow all edits" from an earlier turn; never lowers a mode the user chose.
-        if (event.permissionMode === "default" && this.grants.get(sessionId)?.acceptEdits) {
-          this.control(run, { subtype: "set_permission_mode", mode: "acceptEdits" });
-        }
+        if (typeof event.permissionMode === "string") run.mode = event.permissionMode;
       } else if (event.type === "assistant") {
         const text = messageText(event);
         if (text) this.emit({ type: "text", externalId: sessionId, text });
@@ -434,14 +435,6 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     });
   }
 
-  private control(run: Run, request: Json) {
-    this.controlRequests += 1;
-    writeLine(
-      run.proc,
-      JSON.stringify({ type: "control_request", request_id: `mimir-${this.controlRequests}`, request }),
-    );
-  }
-
   /** Requests of a run that ended can no longer be answered. */
   private expire(run: Run) {
     for (const [requestId, pending] of this.pending) {
@@ -451,8 +444,12 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     }
   }
 
-  /** Remember session-wide "always" grants, so later turns of the session have them too. */
-  private remember(externalId: string, suggestions: Json[]) {
+  /**
+   * Remember session-wide "always" grants, so later turns of the session have them too.
+   * "Allow all edits" only carries over from Claude Code's default mode, so it never
+   * replaces a mode the user chose (such as auto or plan).
+   */
+  private remember(externalId: string, suggestions: Json[], mode: string | undefined) {
     const grants = this.grants.get(externalId) ?? {
       acceptEdits: false,
       allow: new Set<string>(),
@@ -461,7 +458,9 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     for (const suggestion of suggestions) {
       // Other destinations are settings files, which Claude Code updates itself.
       if (suggestion.destination !== "session") continue;
-      if (suggestion.type === "setMode" && suggestion.mode === "acceptEdits") grants.acceptEdits = true;
+      if (suggestion.type === "setMode" && suggestion.mode === "acceptEdits" && mode === "default") {
+        grants.acceptEdits = true;
+      }
       if (
         suggestion.type === "addRules" &&
         suggestion.behavior === "allow" &&
@@ -533,7 +532,7 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
       response = { behavior: "allow", updatedInput: pending.input };
       if (decision === "always" && pending.suggestions.length > 0) {
         response.updatedPermissions = pending.suggestions;
-        this.remember(externalId, pending.suggestions);
+        this.remember(externalId, pending.suggestions, pending.run.mode);
       }
     }
     writeLine(

@@ -225,8 +225,9 @@ export const pages: Page[] = [
           your PATH yourself. Two more Windows details matter:</p>
           <ul>
             <li><b>Shell.</b> With <a href="https://git-scm.com/downloads/win">Git for Windows</a> installed, Claude runs
-            commands in Git Bash and also has a <a href="${CLAUDE_POWERSHELL_DOCS}">PowerShell tool</a>. Without it,
-            PowerShell is its only shell. Either works.</li>
+            commands in Git Bash; set <code>CLAUDE_CODE_USE_POWERSHELL_TOOL=1</code> to add its
+            <a href="${CLAUDE_POWERSHELL_DOCS}">PowerShell tool</a>. Without Git, PowerShell is its shell. Either works
+            with OpenMimir.</li>
             <li><b>Permission rules.</b> PowerShell commands follow <code>PowerShell(...)</code> rules, not
             <code>Bash(...)</code> ones, so a rule like <code>Bash(git push *)</code> needs a
             <code>PowerShell(git push *)</code> twin. Claude Code matches aliases, so

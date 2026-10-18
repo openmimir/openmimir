@@ -153,6 +153,8 @@ const env = {
   ANTHROPIC_API_KEY: "sk-ant-mimir-check",
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
   DISABLE_AUTOUPDATER: "1",
+  // With Git for Windows installed Claude Code uses Git Bash; this adds its PowerShell tool.
+  ...(process.platform === "win32" ? { CLAUDE_CODE_USE_POWERSHELL_TOOL: "1" } : {}),
 };
 
 let failures = 0;

@@ -6,8 +6,8 @@ import { gitChanges } from "./git.ts";
 import {
   type Command,
   commandOutput,
+  findAgentCommand,
   killTree,
-  resolveCommand,
   spawnCommand,
   writeStdin,
 } from "./process.ts";
@@ -49,6 +49,11 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
   private readonly running = new Map<string, Subprocess>();
   /** Sessions the user asked to stop, so their exit reads as interrupted rather than failed. */
   private readonly interrupting = new Set<string>();
+  /**
+   * When each headless run Mimir started ended. A run that was stopped, or failed before
+   * finishing its turn, leaves a history that looks mid-turn; this says otherwise.
+   */
+  private readonly exitedAt = new Map<string, number>();
 
   constructor(options: CodexAdapterOptions = {}) {
     super();
@@ -65,13 +70,13 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
   }
 
   private command(): Command {
-    const command = resolveCommand(this.binary);
+    const command = findAgentCommand(this.binary);
     if (!command) throw new Error("Codex is not installed (no `codex` on PATH).");
     return command;
   }
 
   async health(): Promise<AdapterHealth> {
-    const command = resolveCommand(this.binary);
+    const command = findAgentCommand(this.binary);
     if (!command) return { ok: false, error: "codex is not installed" };
     const version = (await commandOutput(command, ["--version"]).catch(() => "")).split(" ").pop();
     if (!version) return { ok: false, error: `could not run ${command.path}` };
@@ -110,6 +115,12 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
     return found.sort((a, b) => b.mtime - a.mtime).slice(0, limit);
   }
 
+  /** True if a run Mimir started for this session ended after the rollout was last written. */
+  private endedAfter(id: string, mtime: number): boolean {
+    const exited = this.exitedAt.get(id);
+    return exited !== undefined && mtime <= exited + 2_000;
+  }
+
   private async toSummaries(
     files: Array<{ path: string; mtime: number; ctime: number }>,
     bytes = 256 * 1024,
@@ -123,7 +134,9 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
         ...rest,
         updatedAt: file.mtime,
         createdAt: file.ctime,
-        running: this.running.has(summary.externalId) || (midTurn && Date.now() - file.mtime < STALE_MS),
+        running:
+          this.running.has(summary.externalId) ||
+          (midTurn && Date.now() - file.mtime < STALE_MS && !this.endedAfter(summary.externalId, file.mtime)),
       });
     }
     return summaries;
@@ -255,7 +268,10 @@ export class CodexAdapter extends Emitter implements AgentAdapter {
       }
     }
     await proc.exited;
-    if (threadId) this.running.delete(threadId);
+    if (threadId) {
+      this.running.delete(threadId);
+      this.exitedAt.set(threadId, Date.now());
+    }
     const interrupted = Boolean(threadId && this.interrupting.delete(threadId));
     if (!finished) {
       const stderr = (await new Response(proc.stderr as ReadableStream).text()).trim();

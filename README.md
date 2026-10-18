@@ -63,6 +63,10 @@ Then type a request, or press **⌘⇧Space** (**Ctrl+Shift+Space** on Windows) 
 Switch to **Trainer** mode for a big, glanceable screen with live captions and huge approve/reject
 buttons.
 
+To uninstall, delete `~/.openmimir` (it holds the app, your settings and the conversation) and remove
+its `bin` folder from your PATH: the `# OpenMimir` lines in `~/.zshrc` on macOS, or your user `Path`
+in Windows' environment variable settings.
+
 ## Requirements
 
 - macOS (Apple Silicon or Intel), or Windows 10 or 11 (64-bit, x64 or Arm)

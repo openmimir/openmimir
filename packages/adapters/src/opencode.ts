@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
-import { type Command, commandOutput, killTree, resolveCommand, spawnCommand } from "./process.ts";
+import { type Command, commandOutput, findAgentCommand, killTree, spawnCommand } from "./process.ts";
 import { readSSE } from "./sse.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
 import { Emitter, matchesProject, type SessionQuery, scoreText } from "./util.ts";
@@ -15,7 +15,7 @@ import { Emitter, matchesProject, type SessionQuery, scoreText } from "./util.ts
 export async function discoverOpenCodeService(
   binary = "opencode",
 ): Promise<{ url: string; username: string; password: string } | undefined> {
-  const command = resolveCommand(binary);
+  const command = findAgentCommand(binary);
   if (!command) return undefined;
   try {
     const proc = spawnCommand(command, ["service", "status"], {
@@ -176,7 +176,7 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     const port = new URL(this.url).port || "4096";
     const hostname = new URL(this.url).hostname;
     const binary = this.options.binary ?? "opencode";
-    const command = resolveCommand(binary);
+    const command = findAgentCommand(binary);
     if (!command) {
       this.log(`could not start OpenCode: \`${binary}\` is not on PATH`);
       return;

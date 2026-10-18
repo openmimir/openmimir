@@ -16,7 +16,7 @@ import {
   CodexAdapter,
   commandOutput,
   discoverOpenCodeService,
-  findClaude,
+  findAgentCommand,
   killTree,
   openCodeVersionProblem,
   resolveCommand,
@@ -39,7 +39,7 @@ console.log(`platform ${process.platform} ${process.arch}, bun ${Bun.version}\n`
 
 // 1. Which agents and tools are installed, and can Mimir run them?
 for (const name of ["git", "node", "claude", "codex", "opencode"]) {
-  const command = name === "claude" ? findClaude() : resolveCommand(name);
+  const command = findAgentCommand(name);
   if (!command) {
     info(name, "not installed");
     continue;
@@ -55,7 +55,7 @@ for (const adapter of [new ClaudeCodeAdapter(), new CodexAdapter()]) {
 }
 
 // 2. A fake agent installed the way npm installs CLIs, run through the same code as real ones.
-const node = resolveCommand("node");
+const node = findAgentCommand("node");
 if (!node) {
   info("fake agent", "skipped, needs node");
 } else {
@@ -200,7 +200,7 @@ if (process.argv.includes("--agents")) {
 }
 
 // 4. OpenCode: version and background service.
-const opencode = resolveCommand("opencode");
+const opencode = findAgentCommand("opencode");
 if (opencode) {
   const problem = await openCodeVersionProblem(opencode);
   if (problem) info("opencode version", problem);

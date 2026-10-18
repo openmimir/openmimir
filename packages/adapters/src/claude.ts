@@ -6,8 +6,8 @@ import { gitChanges } from "./git.ts";
 import {
   type Command,
   commandOutput,
+  findAgentCommand,
   killTree,
-  resolveCommand,
   spawnCommand,
   writeStdin,
 } from "./process.ts";
@@ -37,9 +37,9 @@ const STALE_MS = 10 * 60_000;
 /** Search reads at most this many transcripts (newest first). */
 const SEARCH_FILES = 400;
 
-/** Finds the Claude Code CLI, skipping the Claude desktop app's Windows alias of the same name. */
+/** Finds the Claude Code CLI, also where its installer puts it when that isn't on PATH. */
 export function findClaude(binary = "claude"): Command | undefined {
-  return resolveCommand(binary, { skip: (file) => /[\\/]WindowsApps[\\/]/i.test(file) });
+  return findAgentCommand(binary);
 }
 
 /**
@@ -54,6 +54,11 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   private readonly running = new Map<string, Subprocess>();
   /** Sessions the user asked to stop, so their exit reads as interrupted rather than failed. */
   private readonly interrupting = new Set<string>();
+  /**
+   * When each headless run Mimir started ended. A run that was stopped, or failed before
+   * finishing its turn, leaves a history that looks mid-turn; this says otherwise.
+   */
+  private readonly exitedAt = new Map<string, number>();
 
   constructor(options: ClaudeCodeAdapterOptions = {}) {
     super();
@@ -116,6 +121,12 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     return files.sort((a, b) => b.mtime - a.mtime);
   }
 
+  /** True if a run Mimir started for this session ended after the transcript was last written. */
+  private endedAfter(file: { id: string; mtime: number }): boolean {
+    const exited = this.exitedAt.get(file.id);
+    return exited !== undefined && file.mtime <= exited + 2_000;
+  }
+
   private async toSummaries(
     files: Array<{ path: string; id: string; mtime: number; ctime: number }>,
     bytes = 256 * 1024,
@@ -131,7 +142,9 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
         updatedAt: file.mtime,
         createdAt: file.ctime,
         // Headless runs Mimir started are known; for the user's own terminals, infer from the transcript.
-        running: this.running.has(file.id) || (midTurn && Date.now() - file.mtime < STALE_MS),
+        running:
+          this.running.has(file.id) ||
+          (midTurn && Date.now() - file.mtime < STALE_MS && !this.endedAfter(file)),
       });
     }
     return summaries;
@@ -179,7 +192,10 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
       if (!title && entry.type === "ai-title" && typeof entry.aiTitle === "string") title = entry.aiTitle;
       if (entry.type === "assistant") {
         lastText = messageText(entry) || lastText;
-        midTurn = (entry.message as { stop_reason?: string } | undefined)?.stop_reason !== "end_turn";
+        const stop = (entry.message as { stop_reason?: string | null } | undefined)?.stop_reason;
+        // The turn goes on while Claude calls tools or is still streaming; any other stop
+        // (end_turn, stop_sequence, max_tokens, refusal, an API error such as "Not logged in") ends it.
+        midTurn = !entry.isApiErrorMessage && (stop === "tool_use" || stop === "pause_turn" || stop == null);
       } else if (entry.type === "user" && !entry.isMeta) {
         midTurn = true;
       }
@@ -270,7 +286,10 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
       }
     }
     await proc.exited;
-    if (sessionId) this.running.delete(sessionId);
+    if (sessionId) {
+      this.running.delete(sessionId);
+      this.exitedAt.set(sessionId, Date.now());
+    }
     const interrupted = Boolean(sessionId && this.interrupting.delete(sessionId));
     if (!finished) {
       const stderr = (await new Response(proc.stderr as ReadableStream).text()).trim();

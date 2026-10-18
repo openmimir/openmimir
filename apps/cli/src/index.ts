@@ -1,14 +1,13 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
-import { networkInterfaces } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir, networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   discoverOpenCodeService,
-  findClaude,
+  findAgentCommand,
   OpenCodeAdapter,
   openCodeVersionProblem,
-  resolveCommand,
 } from "@openmimir/adapters";
 import { configPath, loadConfig, type MimirConfig, saveConfig } from "@openmimir/core";
 import { AGENT_LABELS } from "@openmimir/protocol";
@@ -17,6 +16,12 @@ import { createApp } from "./app.ts";
 import { startServer } from "./server.ts";
 
 const VERSION = pkg.version;
+
+// A console window shows ✓ and ✗ fine, but PowerShell decodes piped or redirected
+// output (mimir > mimir.log) with the console's legacy code page, which garbles them.
+const PLAIN = process.platform === "win32" && !process.stdout.isTTY;
+const YES = PLAIN ? "ok" : "✓";
+const NO = PLAIN ? "no" : "✗";
 
 function log(message: string) {
   const time = new Date().toLocaleTimeString([], { hour12: false });
@@ -71,7 +76,9 @@ async function serve() {
   Voice     ${app.voice ? config.voice.model : "off (no OpenAI key)"}
   Agents    ${app
     .info()
-    .agents.map((a) => `${AGENT_LABELS[a.kind]} ${a.available ? "✓" : `✗ (${a.detail ?? "unavailable"})`}`)
+    .agents.map(
+      (a) => `${AGENT_LABELS[a.kind]} ${a.available ? YES : `${NO} (${a.detail ?? "unavailable"})`}`,
+    )
     .join(", ")}
 `);
 
@@ -163,17 +170,34 @@ function pair() {
   console.log(`\nAnyone with this link can control your agents. Treat it like a password.`);
 }
 
+/**
+ * On Windows, Codex rejects every write until one of its Windows sandboxes is chosen, even
+ * when its sandbox mode allows writes. Codex asks the first time you run it interactively.
+ */
+function codexWindowsSandbox(): { ok: boolean; detail: string } {
+  const file = join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml");
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const windows = text.match(/^\s*\[windows\]([^[]*)/m)?.[1] ?? "";
+  const sandbox = windows.match(/^\s*sandbox\s*=\s*"([^"]+)"/m)?.[1];
+  if (sandbox) return { ok: true, detail: `${sandbox} sandbox` };
+  if (/^\s*prefer_mxc\s*=\s*true/m.test(text)) return { ok: true, detail: "mxc sandbox" };
+  return {
+    ok: false,
+    detail: `none chosen, so Codex can't edit files. Run codex once and pick one, or add [windows] sandbox = "mxc" to ${file}`,
+  };
+}
+
 async function doctor() {
   const config = loadConfig();
   const check = (ok: boolean, label: string, detail = "") =>
-    console.log(`${ok ? "✓" : "✗"} ${label}${detail ? `  ${detail}` : ""}`);
+    console.log(`${ok ? YES : NO} ${label}${detail ? `  ${detail}` : ""}`);
   check(true, "config", configPath());
   check(Boolean(config.keys.openai), "OpenAI key", config.keys.openai ? "" : "needed for voice");
   const provider = config.foreman.model.split("/")[0];
   const foremanKey =
     provider === "openai" ? config.keys.openai : provider === "anthropic" ? config.keys.anthropic : undefined;
   check(Boolean(foremanKey), `foreman ${config.foreman.model}`, foremanKey ? "" : `no ${provider} key`);
-  const opencode = resolveCommand("opencode");
+  const opencode = findAgentCommand("opencode");
   const which = opencode?.path;
   check(Boolean(which), "opencode binary", which ?? "install from https://opencode.ai");
   const problem = await openCodeVersionProblem(opencode);
@@ -198,14 +222,18 @@ async function doctor() {
     ["claude", config.agents.claude],
     ["codex", config.agents.codex],
   ] as const) {
-    const path = (kind === "claude" ? findClaude() : resolveCommand(kind))?.path;
+    const path = findAgentCommand(kind)?.path;
     check(
       Boolean(path) || !enabled,
       `${AGENT_LABELS[kind]}`,
       !enabled ? "turned off" : (path ?? "not installed (optional)"),
     );
   }
-  const git = resolveCommand("git")?.path;
+  if (process.platform === "win32" && config.agents.codex && findAgentCommand("codex")) {
+    const sandbox = codexWindowsSandbox();
+    check(sandbox.ok, "Codex Windows sandbox", sandbox.detail);
+  }
+  const git = findAgentCommand("git")?.path;
   check(Boolean(git), "git", git ?? "not installed (needed to show Claude Code and Codex changes)");
   if (config.keys.openai) {
     const response = await fetch(`https://api.openai.com/v1/models/${config.voice.model}`, {

@@ -27,6 +27,11 @@ export interface ResolveOptions {
   read?: (file: string) => string;
   /** Skip matches the caller knows are not the right program. */
   skip?: (file: string) => boolean;
+  /**
+   * Folders to try after PATH: where an agent's own installer puts it, in case that
+   * folder isn't on PATH (Claude Code's Windows installer doesn't add it).
+   */
+  extraDirs?: string[];
 }
 
 /** Environment lookup that ignores case, as Windows does (`Path` vs `PATH`). */
@@ -41,9 +46,10 @@ export function resolveCommand(name: string, options: ResolveOptions = {}): Comm
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   if (platform !== "win32") {
+    const pathVar = [getEnv(env, "PATH") ?? "", ...(options.extraDirs ?? [])].filter(Boolean).join(":");
     const found = options.exists
-      ? findPosix(name, getEnv(env, "PATH") ?? "", options.exists, options.skip)
-      : Bun.which(name, { PATH: getEnv(env, "PATH") ?? "" });
+      ? findPosix(name, pathVar, options.exists, options.skip)
+      : Bun.which(name, { PATH: pathVar });
     return found && !options.skip?.(found) ? { argv: [found], path: found } : undefined;
   }
   const exists = options.exists ?? existsSync;
@@ -54,7 +60,9 @@ export function resolveCommand(name: string, options: ResolveOptions = {}): Comm
     .map((ext) => ext.trim().toLowerCase())
     .filter((ext) => [".com", ".exe", ".bat", ".cmd"].includes(ext));
   const explicit = win.isAbsolute(name) || /[\\/]/.test(name);
-  const dirs = explicit ? [""] : (getEnv(env, "PATH") ?? "").split(";").filter(Boolean);
+  const dirs = explicit
+    ? [""]
+    : [...(getEnv(env, "PATH") ?? "").split(";"), ...(options.extraDirs ?? [])].filter(Boolean);
   for (const dir of dirs) {
     const base = dir ? win.join(dir.replace(/^"|"$/g, ""), name) : name;
     const candidates = win.extname(name) ? [base] : extensions.map((ext) => base + ext);
@@ -83,7 +91,8 @@ function findPosix(
 
 function fromWindowsFile(
   file: string,
-  options: Required<Pick<ResolveOptions, "env" | "exists" | "read">> & Pick<ResolveOptions, "skip">,
+  options: Required<Pick<ResolveOptions, "env" | "exists" | "read">> &
+    Pick<ResolveOptions, "skip" | "extraDirs">,
 ): Command | undefined {
   const win = path.win32;
   const ext = win.extname(file).toLowerCase();
@@ -103,9 +112,15 @@ function fromWindowsFile(
   // A script: run it with the interpreter the shim would use, preferring one next to the shim.
   const program = shim.program ?? "node";
   const local = win.join(dir, `${program}.exe`);
+  const programFiles = getEnv(options.env, "ProgramFiles") ?? "C:\\Program Files";
   const interpreter = options.exists(local)
     ? local
-    : resolveCommand(program, { ...options, platform: "win32", skip: undefined })?.argv[0];
+    : resolveCommand(program, {
+        ...options,
+        platform: "win32",
+        skip: undefined,
+        extraDirs: program === "node" ? [win.join(programFiles, "nodejs")] : [],
+      })?.argv[0];
   if (!interpreter) return undefined;
   return { argv: [interpreter, target], path: file };
 }
@@ -125,6 +140,47 @@ export function parseShim(text: string): { target: string; program?: string } | 
     text.match(/^\s*([\w.-]+)\s+"%~?dp0%?\\[^"]+"\s*%\*/im)?.[1];
   const program = prog?.replace(/\.exe$/i, "");
   return { target, program: program && program.toLowerCase() !== "%_prog%" ? program : undefined };
+}
+
+/**
+ * Where agents' own installers and npm put their commands, for when those folders are
+ * missing from PATH (a service, a fresh terminal, or an installer that never added them).
+ */
+export function agentDirs(env: Record<string, string | undefined> = process.env): string[] {
+  const home = getEnv(env, "USERPROFILE") ?? getEnv(env, "HOME") ?? "";
+  if (process.platform === "win32") {
+    const appData = getEnv(env, "APPDATA") ?? path.win32.join(home, "AppData", "Roaming");
+    return [
+      path.win32.join(home, ".local", "bin"), // Claude Code's native installer
+      path.win32.join(home, ".opencode", "bin"), // OpenCode's installer
+      path.win32.join(appData, "npm"), // npm install -g
+      path.win32.join(home, ".bun", "bin"), // bun install -g
+    ];
+  }
+  return [
+    path.posix.join(home, ".local", "bin"),
+    path.posix.join(home, ".claude", "local"),
+    path.posix.join(home, ".opencode", "bin"),
+    path.posix.join(home, ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ];
+}
+
+/**
+ * Find an agent (or git/node) the way Mimir always should: PATH first, then the folders
+ * agents install into. Skips the Claude desktop app's Windows alias named claude.exe.
+ */
+export function findAgentCommand(name: string): Command | undefined {
+  const programFiles = process.env.ProgramFiles ?? "C:\\Program Files";
+  const extra =
+    name === "git" && process.platform === "win32"
+      ? [path.win32.join(programFiles, "Git", "cmd")]
+      : agentDirs();
+  return resolveCommand(name, {
+    extraDirs: extra,
+    skip: name === "claude" ? (file) => /[\\/]WindowsApps[\\/]/i.test(file) : undefined,
+  });
 }
 
 /** cmd.exe-quoted argument, for the rare batch file we could not resolve. */

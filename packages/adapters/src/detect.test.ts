@@ -40,6 +40,31 @@ describe("Claude Code running detection", () => {
   );
   write(join(dir, "just-prompted.jsonl"), jsonl([user("fix it")]));
   write(
+    join(dir, "not-logged-in.jsonl"),
+    jsonl([
+      user("fix it"),
+      {
+        type: "assistant",
+        isApiErrorMessage: true,
+        message: {
+          stop_reason: "stop_sequence",
+          content: [{ type: "text", text: "Not logged in · Please run /login" }],
+        },
+      },
+    ]),
+  );
+  write(
+    join(dir, "stop-sequence.jsonl"),
+    jsonl([user("fix it"), assistant("stop_sequence", [{ type: "text", text: "Done." }])]),
+  );
+  write(
+    join(dir, "streaming.jsonl"),
+    jsonl([
+      user("fix it"),
+      { type: "assistant", message: { stop_reason: null, content: [{ type: "text", text: "Looking" }] } },
+    ]),
+  );
+  write(
     join(dir, "stale.jsonl"),
     jsonl([user("fix it"), assistant("tool_use", [{ type: "tool_use" }])]),
     60 * 60_000,
@@ -52,6 +77,14 @@ describe("Claude Code running detection", () => {
     expect(byId.get("tool-running")?.running).toBe(true);
     expect(byId.get("just-prompted")?.running).toBe(true);
     expect(byId.get("stale")?.running).toBe(false);
+  });
+
+  test("errors and other stop reasons end a turn; only tools and streaming keep it going", async () => {
+    const byId = new Map((await adapter.listRecent(20)).map((s) => [s.externalId, s]));
+    expect(byId.get("not-logged-in")?.running).toBe(false);
+    expect(byId.get("not-logged-in")?.lastText).toBe("Not logged in · Please run /login");
+    expect(byId.get("stop-sequence")?.running).toBe(false);
+    expect(byId.get("streaming")?.running).toBe(true);
   });
 });
 

@@ -145,6 +145,15 @@ describe("resolveCommand on Windows", () => {
     expect(resolveCommand("claude", { ...fs, skip })?.path).toBe(`${LOCAL_BIN}\\claude.exe`);
   });
 
+  test("falls back to install folders that are not on PATH", () => {
+    // Claude Code's Windows installer puts claude.exe in ~/.local/bin without adding it to PATH.
+    const fs = windows({ [`${LOCAL_BIN}\\claude.exe`]: "" }, { PATH: NODE });
+    expect(resolveCommand("claude", fs)).toBeUndefined();
+    expect(resolveCommand("claude", { ...fs, extraDirs: [LOCAL_BIN] })?.argv).toEqual([
+      `${LOCAL_BIN}\\claude.exe`,
+    ]);
+  });
+
   test("explicit paths and quoted PATH entries", () => {
     const fs = windows({ "C:\\My Tools\\codex.exe": "" }, { PATH: '"C:\\My Tools"' });
     expect(resolveCommand("codex", fs)?.argv).toEqual(["C:\\My Tools\\codex.exe"]);

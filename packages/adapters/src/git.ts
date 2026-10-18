@@ -1,9 +1,9 @@
-import { resolveCommand, spawnCommand } from "./process.ts";
+import { findAgentCommand, spawnCommand } from "./process.ts";
 import type { FileChange } from "./types.ts";
 
 /** Uncommitted changes in a working tree, for agents without their own diff API. */
 export async function gitChanges(directory: string): Promise<FileChange[]> {
-  const git = resolveCommand("git");
+  const git = findAgentCommand("git");
   if (!git) return [];
   const run = async (args: string[]) => {
     const proc = spawnCommand(git, ["-C", directory, ...args], {

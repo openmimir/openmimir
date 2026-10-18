@@ -7,6 +7,14 @@ export {
   type OpenCodeAdapterOptions,
   openCodeVersionProblem,
 } from "./opencode.ts";
-export { type Command, commandOutput, killTree, resolveCommand, spawnCommand } from "./process.ts";
+export {
+  agentDirs,
+  type Command,
+  commandOutput,
+  findAgentCommand,
+  killTree,
+  resolveCommand,
+  spawnCommand,
+} from "./process.ts";
 export { readSSE } from "./sse.ts";
 export * from "./types.ts";

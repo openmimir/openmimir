@@ -218,7 +218,9 @@ export const pages: Page[] = [
     body: `
           <h2>Claude Code</h2>
           <p>Install it from PowerShell with <code>irm https://claude.ai/install.ps1 | iex</code>; no admin rights or
-          Node.js needed (<a href="${CLAUDE_SETUP_DOCS}">official setup guide</a>). Two Windows details matter:</p>
+          Node.js needed (<a href="${CLAUDE_SETUP_DOCS}">official setup guide</a>). The installer puts
+          <code>claude.exe</code> in <code>%USERPROFILE%\\.local\\bin</code> and may ask you to add that folder to
+          your PATH yourself. Two more Windows details matter:</p>
           <ul>
             <li><b>Shell.</b> With <a href="https://git-scm.com/downloads/win">Git for Windows</a> installed, Claude runs
             commands in Git Bash and also has a <a href="${CLAUDE_POWERSHELL_DOCS}">PowerShell tool</a>. Without it,
@@ -234,12 +236,17 @@ export const pages: Page[] = [
           <a href="${CODEX_WINDOWS_DOCS}">Windows sandbox</a>: on recent Windows 11 builds it uses Microsoft's new
           isolation (no admin needed), and elsewhere a sandbox that an administrator sets up once. Windows 11 is the
           recommended base; Windows 10 works on a best-effort basis.</p>
+          <p>One thing to know: until a sandbox is chosen, Codex can read your code but every write is rejected, even
+          with <code>sandbox_mode = "workspace-write"</code>. Run <code>codex</code> once and pick one, or add this to
+          <code>%USERPROFILE%\\.codex\\config.toml</code>:</p>
+          <p><code>[windows]</code><br /><code>sandbox = "mxc"</code></p>
 
           <h2>OpenCode</h2>
           <p>This is where most people trip up: <code>npm install -g opencode-ai</code> still installs
           <b>OpenCode 1</b>. OpenCode 2 is <code>npm install -g @opencode/cli</code>, or a standalone zip from the
           <a href="${OPENCODE_V2_DOCS}">OpenCode 2 docs</a> (Windows x64 and ARM64). Check with
-          <code>opencode --version</code>.</p>
+          <code>opencode --version</code>. Its background server works on Windows too:
+          <code>opencode service start</code>.</p>
 
           <h2>Native or WSL?</h2>
           <p>Native is simplest when your projects live on the Windows drive and you use Windows tools. WSL 2 gives you
@@ -252,13 +259,18 @@ export const pages: Page[] = [
           <p><code>irm https://openmimir.com/install.ps1 | iex</code></p>
           <ul>
             <li>It finds Claude Code, Codex and OpenCode however you installed them, including npm's
-            <code>.cmd</code> shims, and reads their history from <code>%USERPROFILE%</code>.</li>
+            <code>.cmd</code> shims and install folders that never made it onto your PATH, and reads their history
+            from <code>%USERPROFILE%</code>.</li>
+            <li>It uses your OpenCode background service when it runs, so its messages show up live in OpenCode, and
+            starts its own OpenCode server otherwise.</li>
             <li>It sends prompts to the agents on standard input, so nothing gets mangled by Windows command-line
             quoting or cut off by its length limit.</li>
             <li>Its safety rules cover PowerShell and cmd as well as Bash: <code>Remove-Item -Recurse</code>,
             <code>rd /s</code>, <code>irm ... | iex</code>, <code>Stop-Computer</code> and friends wait for an on-screen
             approval, and voice can never approve them.</li>
-            <li>Stopping a session stops the agent and everything it started.</li>
+            <li>Stopping a session stops the agent and everything it started, and closing Mimir's window or pressing
+            Ctrl+C takes its agents down with it.</li>
+            <li><code>mimir doctor</code> tells you if something is missing, such as Codex's Windows sandbox.</li>
             <li>Press <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Space</kbd> in the browser to talk.</li>
           </ul>`,
     faq: [
@@ -273,6 +285,10 @@ export const pages: Page[] = [
       {
         q: "Why does OpenMimir say my OpenCode is too old?",
         a: "You probably have OpenCode 1 from <code>npm install -g opencode-ai</code>. OpenMimir needs OpenCode 2: <code>npm install -g @opencode/cli</code>.",
+      },
+      {
+        q: "Why can't Codex edit files on Windows?",
+        a: 'Codex rejects writes until one of its Windows sandboxes is chosen. Run <code>codex</code> once and pick one, or add <code>[windows]</code> with <code>sandbox = "mxc"</code> to <code>%USERPROFILE%\\.codex\\config.toml</code>.',
       },
       {
         q: "Does OpenMimir need admin rights on Windows?",

@@ -67,6 +67,17 @@ To uninstall, delete `~/.openmimir` (it holds the app, your settings and the con
 its `bin` folder from your PATH: the `# OpenMimir` lines in `~/.zshrc` on macOS, or your user `Path`
 in Windows' environment variable settings.
 
+### Windows notes
+
+- **Codex** rejects every file edit on Windows until one of its sandboxes is chosen. Run `codex` once
+  and pick one, or add `[windows]` and `sandbox = "mxc"` to `%USERPROFILE%\.codex\config.toml`.
+  `mimir doctor` checks this.
+- **Claude Code**'s Windows installer may not add `%USERPROFILE%\.local\bin` to your PATH. Mimir looks
+  there anyway.
+- **OpenCode**: Mimir needs OpenCode 2 (`npm install -g @opencode/cli`); npm's `opencode-ai` is still
+  OpenCode 1. If you run `opencode service start`, Mimir drives that background server so its
+  messages show up live in OpenCode.
+
 ## Requirements
 
 - macOS (Apple Silicon or Intel), or Windows 10 or 11 (64-bit, x64 or Arm)

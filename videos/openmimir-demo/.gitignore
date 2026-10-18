@@ -3,3 +3,4 @@ snapshots/
 .media/
 capture/
 node_modules/
+.hyperframes/

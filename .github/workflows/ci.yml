@@ -51,9 +51,11 @@ jobs:
           $dist = "apps\cli\dist\bin"
           $rel = "$env:RUNNER_TEMP\release"
           New-Item -ItemType Directory -Path $rel -Force | Out-Null
-          Compress-Archive -Path "$dist\windows-x64\mimir.exe", "$dist\windows-x64\web" -DestinationPath "$rel\mimir-windows-x64.zip"
-          $hash = (Get-FileHash -Algorithm SHA256 "$rel\mimir-windows-x64.zip").Hash.ToLower()
-          "$hash  mimir-windows-x64.zip" | Out-File -FilePath "$rel\checksums.txt" -Encoding ascii
+          foreach ($target in @("windows-x64", "windows-arm64")) {
+            Compress-Archive -Path "$dist\$target\mimir.exe", "$dist\$target\web" -DestinationPath "$rel\mimir-$target.zip"
+            $hash = (Get-FileHash -Algorithm SHA256 "$rel\mimir-$target.zip").Hash.ToLower()
+            "$hash  mimir-$target.zip" | Out-File -FilePath "$rel\checksums.txt" -Encoding ascii -Append
+          }
           $server = Start-Process -PassThru -NoNewWindow python -ArgumentList "-m", "http.server", "8765", "--directory", $rel
           Start-Sleep -Seconds 2
           $env:MIMIR_DOWNLOAD_BASE = "http://127.0.0.1:8765"
@@ -70,6 +72,11 @@ jobs:
             if (-not (Test-Path "$env:MIMIR_INSTALL_DIR\web\index.html")) { throw "$shell reinstall lost the web UI" }
           }
           Stop-Process -Id $server.Id
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mimir-windows
+          path: ${{ runner.temp }}/release
+          retention-days: 7
       - name: Start mimir.exe and load the app
         shell: pwsh
         run: |

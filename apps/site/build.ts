@@ -41,9 +41,10 @@ await Bun.write(
   join(out, "llms.txt"),
   `# OpenMimir
 
-> OpenMimir is a free, open-source (MIT) app for macOS that puts one conversation in front of all your coding agents: Claude Code, Codex and OpenCode. You can type to it or talk to it with full-duplex voice, from your desk, a phone or iPad, or an indoor trainer. It sees every existing session, starts new work, reports results back, and keeps risky commands behind an on-screen approval. It runs locally with your own API keys.
+> OpenMimir is a free, open-source (MIT) app for macOS and Windows that puts one conversation in front of all your coding agents: Claude Code, Codex and OpenCode. You can type to it or talk to it with full-duplex voice, from your desk, a phone or iPad, or an indoor trainer. It sees every existing session, starts new work, reports results back, and keeps risky commands behind an on-screen approval. It runs locally with your own API keys.
 
-Install: \`curl -fsSL https://openmimir.com/install.sh | bash\`
+Install on macOS: \`curl -fsSL https://openmimir.com/install.sh | bash\`
+Install on Windows (PowerShell): \`irm https://openmimir.com/install.ps1 | iex\`
 Source: https://github.com/openmimir/openmimir
 
 ## Guides

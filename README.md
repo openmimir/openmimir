@@ -9,7 +9,7 @@ already sees the sessions you started at your desk, so "how's the billing refact
 "carry on with that" just works, and new requests start new sessions without you picking an agent. Add full-duplex voice and you can run it all from an indoor bike, a treadmill or a walk: it
 listens while it talks, you can interrupt it, and it tells you when a session finishes or needs you.
 
-> Status: early (v0.2). Works on macOS at a desk and on the indoor trainer. Phone calls and
+> Status: early. Works on macOS and Windows, at a desk and on the indoor trainer. Phone calls and
 > outdoor/running mode are next. See the [roadmap](#roadmap).
 
 ## How it works
@@ -17,7 +17,7 @@ listens while it talks, you can interrupt it, and it tells you when a session fi
 ```
  Keyboard chat │ Trainer screen │ Full-duplex voice (GPT-Live over WebRTC)
                └───────┬────────┘
-               Mimir server on your Mac (one process)
+          Mimir server on your Mac or PC (one process)
         foreman model · memory · session state · approval rules
                        │
           OpenCode · Claude Code · Codex
@@ -34,16 +34,29 @@ listens while it talks, you can interrupt it, and it tells you when a session fi
 
 ## Install
 
+**macOS** (Terminal):
+
 ```sh
 curl -fsSL https://openmimir.com/install.sh | bash
+```
+
+**Windows** (PowerShell, no admin rights needed):
+
+```powershell
+irm https://openmimir.com/install.ps1 | iex
+```
+
+Then:
+
+```sh
 mimir init    # API keys, main model, where your repos live
 mimir         # start, then open http://localhost:4747
 ```
 
-The installer puts `mimir` in `~/.openmimir/bin` and adds it to your PATH. Run it again to update.
-With Bun installed you can also use `bunx openmimir`.
+The installer puts `mimir` in `~/.openmimir/bin` (`%USERPROFILE%\.openmimir\bin` on Windows) and
+adds it to your PATH. Run it again to update. With Bun installed you can also use `bunx openmimir`.
 
-Then type a request, or press **⌘⇧Space** to talk:
+Then type a request, or press **⌘⇧Space** (**Ctrl+Shift+Space** on Windows) to talk:
 
 > "Add a section about setup to the openmimir README."
 
@@ -52,7 +65,7 @@ buttons.
 
 ## Requirements
 
-- macOS (Apple Silicon or Intel)
+- macOS (Apple Silicon or Intel), or Windows 10 or 11 (64-bit, x64 or Arm)
 - At least one of [OpenCode](https://opencode.ai) v2, Claude Code or Codex
 - An OpenAI API key (voice, and the default model). An Anthropic key is optional.
 
@@ -110,7 +123,8 @@ Mimir can drive agents that change code on your machine, so:
 - The server listens on `127.0.0.1` only. Other devices must pair first.
 - Every API call needs a token; websites you visit cannot talk to Mimir.
 - Risky shell commands (push, deploy, `rm -rf`, `sudo`, ...) are held for approval in OpenCode and
-  blocked outright in Claude Code. Codex follows its own sandbox settings.
+  blocked outright in Claude Code. On Windows the same holds for their PowerShell and cmd forms
+  (`Remove-Item -Recurse`, `rd /s`, `irm ... | iex`, ...). Codex follows its own sandbox settings.
 - Approvals are tiered. Normal edits and commands can be approved by voice, but only after
   you explicitly say "confirm". Pushes, deploys, deletes and similar can only be approved on a screen.
 

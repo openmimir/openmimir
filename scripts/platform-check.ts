@@ -14,8 +14,10 @@ import {
   ClaudeCodeAdapter,
   CodexAdapter,
   commandOutput,
+  discoverOpenCodeService,
   findClaude,
   killTree,
+  openCodeVersionProblem,
   resolveCommand,
   spawnCommand,
 } from "../packages/adapters/src/index.ts";
@@ -156,7 +158,16 @@ if (process.argv.includes("--hang")) {
   rmSync(root, { recursive: true, force: true });
 }
 
-// 3. Where the agents keep their history.
+// 3. OpenCode: version and background service.
+const opencode = resolveCommand("opencode");
+if (opencode) {
+  const problem = await openCodeVersionProblem(opencode);
+  if (problem) info("opencode version", problem);
+  const service = await discoverOpenCodeService();
+  info("opencode background service", service ? service.url : "not running (Mimir starts its own server)");
+}
+
+// 4. Where the agents keep their history.
 for (const [label, dir] of [
   ["Claude Code history", join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects")],
   ["Codex history", join(process.env.CODEX_HOME || join(homedir(), ".codex"), "sessions")],

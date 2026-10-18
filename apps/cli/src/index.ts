@@ -3,7 +3,13 @@ import { existsSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { discoverOpenCodeService, findClaude, OpenCodeAdapter, resolveCommand } from "@openmimir/adapters";
+import {
+  discoverOpenCodeService,
+  findClaude,
+  OpenCodeAdapter,
+  openCodeVersionProblem,
+  resolveCommand,
+} from "@openmimir/adapters";
 import { configPath, loadConfig, type MimirConfig, saveConfig } from "@openmimir/core";
 import { AGENT_LABELS } from "@openmimir/protocol";
 import pkg from "../package.json" with { type: "json" };
@@ -167,8 +173,11 @@ async function doctor() {
   const foremanKey =
     provider === "openai" ? config.keys.openai : provider === "anthropic" ? config.keys.anthropic : undefined;
   check(Boolean(foremanKey), `foreman ${config.foreman.model}`, foremanKey ? "" : `no ${provider} key`);
-  const which = resolveCommand("opencode")?.path;
+  const opencode = resolveCommand("opencode");
+  const which = opencode?.path;
   check(Boolean(which), "opencode binary", which ?? "install from https://opencode.ai");
+  const problem = await openCodeVersionProblem(opencode);
+  if (problem) check(false, "OpenCode version", problem);
   const service = config.opencode.url === "auto" ? await discoverOpenCodeService() : undefined;
   const target = service ?? {
     url: config.opencode.url === "auto" ? "http://127.0.0.1:4097" : config.opencode.url,

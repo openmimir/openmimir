@@ -41,7 +41,7 @@ jobs:
         shell: pwsh
         run: |
           irm https://claude.ai/install.ps1 | iex
-          npm install -g @openai/codex opencode-ai
+          npm install -g @openai/codex @opencode/cli
           "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Platform check (how Mimir finds and runs agents)
         run: bun scripts/platform-check.ts
@@ -88,5 +88,10 @@ jobs:
           $page = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4799/).Content
           if ($page -notmatch "<title>") { throw "no web UI" }
           $snapshot = Invoke-RestMethod -Headers @{ "x-mimir-token" = $token } http://127.0.0.1:4799/api/snapshot
-          Write-Host "agents: $(($snapshot.info.agents | ForEach-Object { "$($_.kind)=$($_.available)" }) -join ', ')"
+          $snapshot.info.agents | ForEach-Object { Write-Host "agent $($_.kind): available=$($_.available) $($_.detail)" }
           Stop-Process -Id $p.Id
+          # Claude Code, Codex and OpenCode 2 are all installed, so all three must be usable.
+          foreach ($kind in @("claude", "codex", "opencode")) {
+            $agent = $snapshot.info.agents | Where-Object { $_.kind -eq $kind }
+            if (-not $agent -or -not $agent.available) { throw "$kind is not available in mimir.exe" }
+          }

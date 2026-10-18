@@ -8,15 +8,16 @@ const CLAUDE_RC_DOCS = "https://code.claude.com/docs/en/remote-control";
 const CODEX_REMOTE_DOCS = "https://learn.chatgpt.com/docs/remote";
 
 const phoneSetup = `<h2>Setting it up on a phone or iPad</h2>
-          <p>OpenMimir runs on your Mac and serves its interface to any browser. Browsers only allow the microphone on
-          HTTPS, so put your Mac on a private network with an HTTPS name, and pair the device once:</p>
+          <p>OpenMimir runs on your computer (Mac or Windows) and serves its interface to any browser. Browsers only
+          allow the microphone on HTTPS, so put your computer on a private network with an HTTPS name, and pair the
+          device once:</p>
           <ol>
-            <li>Install and start OpenMimir on the Mac: <code>mimir init</code>, then <code>mimir</code>.</li>
+            <li>Install and start OpenMimir on your computer: <code>mimir init</code>, then <code>mimir</code>.</li>
             <li>Expose it privately, for example with Tailscale Serve (<code>tailscale serve --bg 4747</code>) or a
             Cloudflare Tunnel with access control.</li>
             <li>Run <code>mimir pair</code> and open the link on your phone or iPad. Add it to the home screen.</li>
           </ol>
-          <p>Your Mac has to stay on and awake, since that is where the agents run.</p>`;
+          <p>Your computer has to stay on and awake, since that is where the agents run.</p>`;
 
 export const pages: Page[] = [
   // claude code voice (720), claude code voice mode (720), claude code voice input (210), speech to text (70)
@@ -116,7 +117,7 @@ export const pages: Page[] = [
             on a trainer, a treadmill, cooking, walking the dog.</li>
             <li><b>Summaries instead of transcripts.</b> Ask "is the migration done?" and get one sentence back.</li>
             <li><b>Not only Claude.</b> The same conversation covers Codex and OpenCode sessions.</li>
-            <li><b>Your keys, your machine.</b> Works with API keys. Everything except the model calls stays on your Mac.</li>
+            <li><b>Your keys, your machine.</b> Works with API keys. Everything except the model calls stays on your computer.</li>
           </ul>
 
           <table>
@@ -145,7 +146,7 @@ export const pages: Page[] = [
         a: "No. It reads Claude Code's local session history and continues sessions through the Claude Code CLI.",
       },
       {
-        q: "Does my code leave my Mac?",
+        q: "Does my code leave my computer?",
         a: "Your code stays where Claude Code runs. OpenMimir sends your requests to the model provider you choose and audio to OpenAI's voice model, and has no telemetry.",
       },
     ],
@@ -241,7 +242,7 @@ export const pages: Page[] = [
       },
       {
         q: "Where is the data stored?",
-        a: "In <code>~/.openmimir</code> on your Mac. Agent history stays where each agent keeps it.",
+        a: "In <code>~/.openmimir</code> on your computer (<code>%USERPROFILE%\\.openmimir</code> on Windows). Agent history stays where each agent keeps it.",
       },
     ],
   },
@@ -254,7 +255,7 @@ export const pages: Page[] = [
       "Talk to your OpenCode sessions from a phone or iPad. OpenMimir drives your OpenCode service, so every message also shows up live in the OpenCode app.",
     eyebrow: "OpenCode · Remote",
     h1: "Use OpenCode from your phone, by voice",
-    lead: "OpenMimir connects to your OpenCode background service. Talk to it from a phone or iPad, and everything it sends appears live in OpenCode on your Mac.",
+    lead: "OpenMimir connects to your OpenCode background service. Talk to it from a phone or iPad, and everything it sends appears live in OpenCode on your computer.",
     summary: "Drive OpenCode sessions remotely, with every message visible in the OpenCode app.",
     body: `
           <h2>How it connects</h2>
@@ -319,7 +320,7 @@ export const pages: Page[] = [
           </ul>
 
           <h2>The setup</h2>
-          <p>OpenMimir runs on the Mac at the desk. An iPad on the handlebars shows trainer mode: the conversation in large
+          <p>OpenMimir runs on the computer at the desk. An iPad on the handlebars shows trainer mode: the conversation in large
           type, live captions of what it heard, how many sessions are running, which ones need you, and huge approve and
           reject buttons. Earbuds
           carry the voice. The same setup works on a treadmill or a walking pad.</p>

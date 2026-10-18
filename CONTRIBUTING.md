@@ -53,4 +53,4 @@ agent-specific inside the adapter.
 ## Releases
 
 Maintainers merge the "Version packages" pull request that Changesets opens. Tagging `vX.Y.Z` builds
-the macOS binaries and attaches them to a GitHub Release.
+the macOS and Windows binaries (Windows ones on a Windows runner, so `mimir.exe` gets its icon and file details) and attaches them to a GitHub Release.

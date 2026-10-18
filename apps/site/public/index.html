@@ -6,12 +6,12 @@
     <title>OpenMimir: talk to all your coding agents, hands-free</title>
     <meta
       name="description"
-      content="One conversation in front of Claude Code, Codex and OpenCode. Type to it, or talk to it full duplex from your desk, a trainer or a walk. Open source, runs on your Mac."
+      content="One conversation in front of Claude Code, Codex and OpenCode. Type to it, or talk to it full duplex from your desk, a trainer or a walk. Open source, runs on your Mac or Windows PC."
     />
     <meta property="og:title" content="OpenMimir" />
     <meta
       property="og:description"
-      content="One conversation in front of all your coding agents. Hands-free, full-duplex voice. Open source, runs on your Mac."
+      content="One conversation in front of all your coding agents. Hands-free, full-duplex voice. Open source, runs on your Mac or Windows PC."
     />
     <meta property="og:url" content="https://openmimir.com" />
     <meta property="og:type" content="website" />
@@ -28,10 +28,10 @@
         "name": "OpenMimir",
         "url": "https://openmimir.com",
         "applicationCategory": "DeveloperApplication",
-        "operatingSystem": "macOS",
+        "operatingSystem": "macOS, Windows",
         "license": "https://opensource.org/licenses/MIT",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-        "description": "One conversation in front of Claude Code, Codex and OpenCode, with full-duplex voice. Open source, runs on your Mac."
+        "description": "One conversation in front of Claude Code, Codex and OpenCode, with full-duplex voice. Open source, runs on your Mac or Windows PC."
       }
     </script>
   </head>
@@ -64,17 +64,24 @@
     <main>
       <section class="hero">
         <div class="hero-copy">
-          <p class="pill reveal"><span class="dot"></span> Open source · macOS · bring your own keys</p>
+          <p class="pill reveal"><span class="dot"></span> Open source · macOS and Windows · bring your own keys</p>
           <h1 class="reveal">One conversation for <span class="grad">all your coding agents.</span></h1>
           <p class="lead reveal">
             OpenMimir sits in front of Claude Code, Codex and OpenCode. It sees every session, starts new work and
             tells you what matters. Type to it, or talk to it hands-free while you ride, run or walk.
           </p>
-          <div class="install reveal">
-            <span class="prompt">$</span>
-            <code id="cmd">curl -fsSL https://openmimir.com/install.sh | bash</code>
-            <button type="button" id="copy" aria-label="Copy install command">Copy</button>
+          <div class="installer reveal" data-installer>
+          <div class="os-tabs" role="tablist" aria-label="Your operating system">
+            <button type="button" role="tab" data-os="mac" aria-selected="true">macOS</button>
+            <button type="button" role="tab" data-os="windows" aria-selected="false">Windows</button>
           </div>
+          <div class="install">
+            <span class="prompt" data-prompt>$</span>
+            <code data-cmd>curl -fsSL https://openmimir.com/install.sh | bash</code>
+            <button type="button" class="copy" aria-label="Copy install command">Copy</button>
+          </div>
+          <p class="install-note" data-note>In Terminal. Apple Silicon or Intel.</p>
+        </div>
           <div class="works reveal">
             <span>Works with</span>
             <span class="chip chip-claude"><img src="/icons/claude.svg" alt="" /> Claude Code</span>
@@ -92,7 +99,7 @@
           <div class="demo-body" id="demo"></div>
           <div class="demo-foot">
             <div class="well" aria-hidden="true"><span></span><span></span><span></span><i></i></div>
-            <span id="caption" class="caption">Press ⌘⇧Space and talk</span>
+            <span id="caption" class="caption">Press <span data-shortcut>⌘⇧Space</span> and talk</span>
           </div>
         </section>
       </section>
@@ -190,7 +197,7 @@
           <h3>You stay in control</h3>
           <p>
             Pushes, deploys and <code>rm -rf</code> wait for your approval, and voice can never approve them. It
-            all runs on your Mac.
+            all runs on your own computer.
           </p>
         </article>
       </section>
@@ -211,7 +218,10 @@
           <li class="reveal">
             <span class="num">3</span>
             <h3>Talk or type</h3>
-            <p>Run <code>mimir</code>, open <code>localhost:4747</code> and press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd>.</p>
+            <p>
+              Run <code>mimir</code>, open <code>localhost:4747</code> and press
+              <span data-keys><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd></span>.
+            </p>
           </li>
         </ol>
       </section>
@@ -242,7 +252,7 @@
         <details class="reveal">
           <summary>Where does my data go?</summary>
           <p>
-            Your conversation and settings stay in <code>~/.openmimir</code> on your Mac. Audio goes from your browser
+            Your conversation and settings stay in <code>~/.openmimir</code> on your computer. Audio goes from your browser
             straight to OpenAI's voice model; requests go to the model provider you choose. There is no telemetry.
           </p>
         </details>
@@ -254,17 +264,28 @@
           </p>
         </details>
         <details class="reveal">
-          <summary>Linux or Windows?</summary>
-          <p>macOS first. The code is portable, and other platforms will follow.</p>
+          <summary>Does it work on Windows? And Linux?</summary>
+          <p>
+            Windows 10 and 11 (64-bit) and macOS, both natively. On Windows it works with Claude Code, Codex and
+            OpenCode however you installed them, and its safety rules cover PowerShell and cmd as well as Bash. Linux
+            is next.
+          </p>
         </details>
       </section>
 
       <section class="cta reveal">
         <h2>Give your agents a voice.</h2>
-        <div class="install">
-          <span class="prompt">$</span>
-          <code>curl -fsSL https://openmimir.com/install.sh | bash</code>
-          <button type="button" class="copy2" aria-label="Copy install command">Copy</button>
+        <div class="installer" data-installer>
+          <div class="os-tabs" role="tablist" aria-label="Your operating system">
+            <button type="button" role="tab" data-os="mac" aria-selected="true">macOS</button>
+            <button type="button" role="tab" data-os="windows" aria-selected="false">Windows</button>
+          </div>
+          <div class="install">
+            <span class="prompt" data-prompt>$</span>
+            <code data-cmd>curl -fsSL https://openmimir.com/install.sh | bash</code>
+            <button type="button" class="copy" aria-label="Copy install command">Copy</button>
+          </div>
+          <p class="install-note" data-note>In Terminal. Apple Silicon or Intel.</p>
         </div>
       </section>
     </main>

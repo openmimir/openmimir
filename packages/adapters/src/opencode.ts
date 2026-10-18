@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
-import { killTree, resolveCommand, spawnCommand } from "./process.ts";
+import { type Command, commandOutput, killTree, resolveCommand, spawnCommand } from "./process.ts";
 import { readSSE } from "./sse.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
 import { Emitter, matchesProject, type SessionQuery, scoreText } from "./util.ts";
@@ -40,6 +40,18 @@ export async function discoverOpenCodeService(
   }
 }
 
+/**
+ * Mimir speaks OpenCode 2's API. npm's `opencode-ai` package is still OpenCode 1, so say
+ * so plainly instead of failing on API errors. Returns undefined when the version is fine.
+ */
+export async function openCodeVersionProblem(command: Command | undefined): Promise<string | undefined> {
+  if (!command) return undefined;
+  const output = await commandOutput(command, ["--version"]).catch(() => "");
+  const major = Number(output.match(/(\d+)\.\d+\.\d+/)?.[1]);
+  if (!major || major >= 2) return undefined;
+  return `OpenCode ${output.replace(/^opencode\s+v?/i, "")} is installed, but Mimir needs OpenCode 2: npm install -g @opencode/cli`;
+}
+
 interface OpenCodeSession {
   id: string;
   title?: string;
@@ -58,6 +70,8 @@ export interface OpenCodeAdapterOptions {
    */
   manage?: boolean;
   binary?: string;
+  /** Set when the installed OpenCode can't be used, e.g. it is OpenCode 1. */
+  unsupported?: string;
   log?: (message: string) => void;
 }
 
@@ -111,6 +125,7 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
   }
 
   async health(): Promise<AdapterHealth> {
+    if (this.options.unsupported) return { ok: false, error: this.options.unsupported };
     try {
       const info = await this.request<{ data?: { version?: string } } & { version?: string }>(
         "GET",
@@ -127,6 +142,10 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
 
   async start(): Promise<void> {
     this.stopped = false;
+    if (this.options.unsupported) {
+      this.log(this.options.unsupported);
+      return;
+    }
     let health = await this.health();
     if (!health.ok && !health.answered && this.options.manage) {
       await this.spawn();

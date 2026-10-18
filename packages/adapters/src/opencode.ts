@@ -84,6 +84,11 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
   private child: Subprocess | undefined;
   private streamAbort: AbortController | undefined;
   private stopped = false;
+  /**
+   * When each session's last turn ended, from the event stream. A turn that ends on a
+   * rejected permission leaves no "idle" entry, so the history alone would look busy.
+   */
+  private readonly endedAt = new Map<string, number>();
 
   constructor(options: OpenCodeAdapterOptions) {
     super();
@@ -242,6 +247,14 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     const d = event.data ?? {};
     const externalId = typeof d.sessionID === "string" ? d.sessionID : undefined;
     if (!externalId) return;
+    if (event.type === "session.execution.started") this.endedAt.delete(externalId);
+    if (
+      event.type === "session.execution.succeeded" ||
+      event.type === "session.execution.failed" ||
+      event.type === "session.execution.interrupted"
+    ) {
+      this.endedAt.set(externalId, Date.now());
+    }
     switch (event.type) {
       case "session.execution.started":
         this.emit({ type: "started", externalId });
@@ -330,6 +343,8 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
   private async looksBusy(session: { id: string; time: { updated: number; idle?: number } }) {
     if (Date.now() - session.time.updated > STALE_MS) return false;
     if (session.time.idle && session.time.idle >= session.time.updated) return false;
+    const ended = this.endedAt.get(session.id);
+    if (ended !== undefined && ended >= session.time.updated - 5_000) return false;
     try {
       const newest = await this.request<{ data: Array<{ type: string; time?: { completed?: number } }> }>(
         "GET",

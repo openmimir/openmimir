@@ -105,6 +105,8 @@ export interface Approval {
   action: string;
   resources: string[];
   message?: string;
+  /** What approving "always" would allow, when the agent offers that, e.g. "Allow all edits in this session". */
+  always?: string;
   tier: RiskTier;
   status: ApprovalStatus;
   createdAt: number;
@@ -179,6 +181,8 @@ export function describeAction(action: string, resources: string[]): string {
       read: "read",
       external_directory: "access files outside the project:",
       webfetch: "fetch",
+      websearch: "search the web for",
+      tool: "use",
     }[action] ?? action;
   return target ? `${verb} ${target}` : verb;
 }

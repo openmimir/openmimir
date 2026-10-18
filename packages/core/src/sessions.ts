@@ -52,6 +52,11 @@ export class SessionManager {
     for (const adapter of adapters.values()) {
       adapter.onEvent((event) => this.handle(adapter.kind, event));
     }
+    // Requests that lived in a run of an earlier Mimir can't be answered anymore.
+    for (const approval of store.pendingApprovals()) {
+      const session = store.session(approval.sessionId);
+      if (session && adapters.get(session.agent)?.approvalsEndWithRun) this.expire(approval);
+    }
   }
 
   get agents(): AgentKind[] {
@@ -275,11 +280,18 @@ export class SessionManager {
     if (!approval) throw new Error(`No approval with id ${id}`);
     if (approval.status !== "pending") return approval;
     const session = this.require(approval.sessionId);
-    await this.adapter(session.agent).replyPermission(
-      session.externalId,
-      approval.externalId,
-      decision === "approve" ? "once" : decision === "approve_always" ? "always" : "reject",
-    );
+    try {
+      await this.adapter(session.agent).replyPermission(
+        session.externalId,
+        approval.externalId,
+        decision === "approve" ? "once" : decision === "approve_always" ? "always" : "reject",
+      );
+    } catch (error) {
+      // The agent stopped waiting meanwhile (its run ended): report that, not a failure.
+      const current = this.store.approval(id);
+      if (current?.status === "expired") return current;
+      throw error;
+    }
     const next: Approval = {
       ...approval,
       status: decision === "reject" ? "rejected" : "approved",
@@ -301,6 +313,16 @@ export class SessionManager {
 
   private hasPending(id: string) {
     return this.store.pendingApprovals().some((a) => a.sessionId === id);
+  }
+
+  private expire(approval: Approval) {
+    const next: Approval = { ...approval, status: "expired", resolvedAt: Date.now() };
+    this.store.saveApproval(next);
+    this.bus.publish({ type: "approval.upsert", approval: next });
+    const session = this.store.session(approval.sessionId);
+    if (session && !this.hasPending(session.id) && session.status === "needs_you") {
+      this.save(session, { status: "idle" });
+    }
   }
 
   private handle(agent: AgentKind, event: AdapterEvent) {
@@ -365,6 +387,7 @@ export class SessionManager {
           action: event.action,
           resources: event.resources,
           message: event.message,
+          always: event.always,
           tier,
           status: "pending",
           createdAt: Date.now(),
@@ -398,6 +421,13 @@ export class SessionManager {
           if (!this.hasPending(session.id) && session.status === "needs_you")
             this.save(session, { status: "working" });
         }
+        break;
+      }
+      case "permission.expired": {
+        const approval = this.store
+          .pendingApprovals()
+          .find((a) => a.sessionId === session.id && a.externalId === event.requestId);
+        if (approval) this.expire(approval);
         break;
       }
     }

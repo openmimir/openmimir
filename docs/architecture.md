@@ -45,8 +45,14 @@ started. Continuing an existing session is the same call as following up on one 
   apps only update live from their own server, so messages written by another server stay invisible
   until the session is reopened. Mimir starts a private `opencode serve` only if no service exists. It supports approvals, so Mimir adds
   session rules that force risky shell commands to ask (merged with the session's own rules).
-- **Claude Code** runs one headless turn per message (`claude -p --resume <id>`). Risky commands are
-  blocked with `--disallowedTools`, since it cannot pause for Mimir's approval.
+- **Claude Code** runs one headless turn per message (`claude -p --resume <id>`), with stream-json in
+  and out and `--permission-prompt-tool stdio`: the channel Claude's Agent SDK uses, so whatever
+  Claude Code would ask at the desk (per the user's own settings) arrives as a `can_use_tool` request
+  that Mimir answers on stdin. Risky commands become ask rules in a `--settings` file; ask rules win
+  over the user's allow rules and over bypass mode, and anything that asks is refused if Mimir can't be
+  reached. Its requests live in the run, so they expire when it ends (or Mimir restarts). "Always"
+  passes on Claude's own suggestion; session-wide ones are re-applied to later runs of the session.
+  The tools that need Claude's own screen (`AskUserQuestion`, plan mode) are switched off.
 - **Codex** runs `codex exec [resume <id>] --json` and relies on the user's Codex sandbox settings.
 
 Sessions touched outside Mimir in the last few minutes may be open on the user's screen; the foreman
@@ -76,7 +82,7 @@ Only sessions Mimir started or continued get spoken updates. The rest are shown,
 
 ## Approvals
 
-OpenCode asks permission for some actions. Mimir classifies each request
+OpenCode and Claude Code ask permission for some actions. Mimir classifies each request
 (`packages/core/src/policy.ts`):
 
 - `confirm`: may be approved by voice after the user explicitly says "confirm".

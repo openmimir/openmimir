@@ -58,7 +58,9 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
       ),
     );
   }
-  if (config.agents.claude && findClaude()) adapters.set("claude", new ClaudeCodeAdapter({ log }));
+  if (config.agents.claude && findClaude()) {
+    adapters.set("claude", new ClaudeCodeAdapter({ settingsDir: mimirHome(), log }));
+  }
   if (config.agents.codex && findAgentCommand("codex")) adapters.set("codex", new CodexAdapter({ log }));
   if (adapters.size === 0) log("[agents] no coding agents found. Install OpenCode, Claude Code or Codex.");
 

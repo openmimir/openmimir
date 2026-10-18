@@ -137,11 +137,15 @@ Mimir can drive agents that change code on your machine, so:
 
 - The server listens on `127.0.0.1` only. Other devices must pair first.
 - Every API call needs a token; websites you visit cannot talk to Mimir.
-- Risky shell commands (push, deploy, `rm -rf`, `sudo`, ...) are held for approval in OpenCode and
-  blocked outright in Claude Code. On Windows the same holds for their PowerShell and cmd forms
-  (`Remove-Item -Recurse`, `rd /s`, `irm ... | iex`, ...). Codex follows its own sandbox settings.
+- Agents ask Mimir whatever they would ask you at your desk: Claude Code's permission prompts and
+  OpenCode's show up as approvals, following your own permission settings for each agent.
+- Risky shell commands (push, deploy, `rm -rf`, `sudo`, ...) always stop for approval in OpenCode and
+  Claude Code, even if your agent settings allow them. On Windows the same holds for their PowerShell
+  and cmd forms (`Remove-Item -Recurse`, `rd /s`, `irm ... | iex`, ...). Codex follows its own sandbox
+  settings.
 - Approvals are tiered. Normal edits and commands can be approved by voice, but only after
   you explicitly say "confirm". Pushes, deploys, deletes and similar can only be approved on a screen.
+  Where the agent offers it, "always" covers the rest of the session, e.g. all edits.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.
 

@@ -120,6 +120,8 @@ export const pages: Page[] = [
             <li><b>Talk instead of type.</b> Full-duplex voice with live captions. Useful when your hands or eyes are busy:
             on a trainer, a treadmill, cooking, walking the dog.</li>
             <li><b>Summaries instead of transcripts.</b> Ask "is the migration done?" and get one sentence back.</li>
+            <li><b>Permission prompts come along.</b> Whatever Claude Code would ask at your desk, it asks you here:
+            tap Approve, or say "confirm". Pushes, deploys and deletes wait for a screen.</li>
             <li><b>Not only Claude.</b> The same conversation covers Codex and OpenCode sessions.</li>
             <li><b>Your keys, your machine.</b> Works with API keys. Everything except the model calls stays on your computer.</li>
           </ul>
@@ -226,7 +228,7 @@ export const pages: Page[] = [
             commands in Git Bash and also has a <a href="${CLAUDE_POWERSHELL_DOCS}">PowerShell tool</a>. Without it,
             PowerShell is its only shell. Either works.</li>
             <li><b>Permission rules.</b> PowerShell commands follow <code>PowerShell(...)</code> rules, not
-            <code>Bash(...)</code> ones, so a deny rule like <code>Bash(git push *)</code> needs a
+            <code>Bash(...)</code> ones, so a rule like <code>Bash(git push *)</code> needs a
             <code>PowerShell(git push *)</code> twin. Claude Code matches aliases, so
             <code>PowerShell(Remove-Item *)</code> also covers <code>rm</code> and <code>del</code>.</li>
           </ul>

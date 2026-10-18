@@ -213,13 +213,29 @@ export function spawnCommand(command: Command, args: string[], options: SpawnOpt
 
 /** Write a prompt to a child's stdin and close it. Prompts never go on the command line. */
 export function writeStdin(proc: Subprocess, text: string): void {
+  writeLine(proc, text, { newline: false });
+  endStdin(proc);
+}
+
+/** Write to a child's stdin and keep it open, for agents that take several messages. */
+export function writeLine(proc: Subprocess, text: string, options = { newline: true }): void {
   const stdin = proc.stdin;
   if (!stdin || typeof stdin === "number") return;
   try {
-    stdin.write(text);
-    void Promise.resolve(stdin.end()).catch(() => undefined);
+    stdin.write(options.newline ? `${text}\n` : text);
+    void Promise.resolve(stdin.flush()).catch(() => undefined);
   } catch {
     // The process already exited; its exit code tells the rest.
+  }
+}
+
+export function endStdin(proc: Subprocess): void {
+  const stdin = proc.stdin;
+  if (!stdin || typeof stdin === "number") return;
+  try {
+    void Promise.resolve(stdin.end()).catch(() => undefined);
+  } catch {
+    // Already closed.
   }
 }
 

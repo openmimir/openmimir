@@ -1,5 +1,5 @@
 import { type AgentSession, type Approval, type ApprovalDecision, describeAction } from "@openmimir/protocol";
-import { Check, Mic, Monitor, X } from "lucide-react";
+import { Check, CheckCheck, Mic, Monitor, X } from "lucide-react";
 import { useState } from "react";
 
 export function ApprovalCard({
@@ -69,6 +69,16 @@ export function ApprovalCard({
           <Check size={big ? 28 : 16} /> Approve
         </button>
       </div>
+      {approval.always && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => resolve("approve_always")}
+          className={`mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-done/40 font-semibold text-done transition hover:bg-done/10 disabled:opacity-50 ${big ? "mt-4 py-5 text-xl" : "py-2 text-sm"}`}
+        >
+          <CheckCheck size={big ? 24 : 16} /> {approval.always}
+        </button>
+      )}
     </div>
   );
 }

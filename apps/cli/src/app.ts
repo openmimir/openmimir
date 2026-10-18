@@ -4,7 +4,10 @@ import {
   ClaudeCodeAdapter,
   CodexAdapter,
   discoverOpenCodeService,
+  findAgentCommand,
+  findClaude,
   OpenCodeAdapter,
+  openCodeVersionProblem,
 } from "@openmimir/adapters";
 import {
   createForemanModel,
@@ -28,9 +31,11 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
   const adapters = new Map<AgentKind, AgentAdapter>();
   // OpenCode is used when installed or when a server was configured explicitly.
   const auto = config.opencode.url === "auto";
-  if (!auto || Bun.which("opencode")) {
-    const service = auto ? await discoverOpenCodeService() : undefined;
-    if (auto) {
+  const opencode = findAgentCommand("opencode");
+  if (!auto || opencode) {
+    const unsupported = auto ? await openCodeVersionProblem(opencode) : undefined;
+    const service = auto && !unsupported ? await discoverOpenCodeService() : undefined;
+    if (auto && !unsupported) {
       log(
         service
           ? `[opencode] using your OpenCode background service at ${service.url}`
@@ -47,13 +52,14 @@ export async function createApp(config: MimirConfig, version: string, log: (mess
               username: config.opencode.username,
               password: config.opencode.password,
               manage: config.opencode.manage,
+              unsupported,
               log,
             },
       ),
     );
   }
-  if (config.agents.claude && Bun.which("claude")) adapters.set("claude", new ClaudeCodeAdapter({ log }));
-  if (config.agents.codex && Bun.which("codex")) adapters.set("codex", new CodexAdapter({ log }));
+  if (config.agents.claude && findClaude()) adapters.set("claude", new ClaudeCodeAdapter({ log }));
+  if (config.agents.codex && findAgentCommand("codex")) adapters.set("codex", new CodexAdapter({ log }));
   if (adapters.size === 0) log("[agents] no coding agents found. Install OpenCode, Claude Code or Codex.");
 
   const sessions = new SessionManager(adapters, store, bus, log);

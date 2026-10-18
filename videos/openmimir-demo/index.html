@@ -403,6 +403,26 @@
       .install .p {
         color: #36e2c4;
       }
+      .install {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+      }
+      .install .row {
+        display: flex;
+        align-items: baseline;
+        gap: 18px;
+      }
+      .install .os {
+        width: 120px;
+        flex-shrink: 0;
+        font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: #8a979c;
+        text-align: right;
+      }
       .meta {
         margin-top: 44px;
         font-size: 28px;
@@ -510,9 +530,10 @@
             <div class="brand" id="end-brand"><img src="assets/img/mimir.svg" alt="" /> OpenMimir</div>
             <p class="end-line" id="end-line">One voice for Claude Code, Codex and OpenCode.</p>
             <div class="install" id="end-install">
-              <span class="p">$</span> curl -fsSL https://openmimir.com/install.sh | bash
+              <div class="row"><span class="os">macOS</span><span class="p">$</span> curl -fsSL https://openmimir.com/install.sh | bash</div>
+              <div class="row"><span class="os">Windows</span><span class="p">PS&gt;</span> irm https://openmimir.com/install.ps1 | iex</div>
             </div>
-            <p class="meta" id="end-meta"><b>openmimir.com</b> · Free and open source · macOS</p>
+            <p class="meta" id="end-meta"><b>openmimir.com</b> · Free and open source · macOS and Windows</p>
           </div>
         </div>
       </section>

@@ -12,7 +12,12 @@ bold=$'\033[1m'; dim=$'\033[2m'; green=$'\033[32m'; red=$'\033[31m'; reset=$'\03
 info() { printf '%s\n' "$*"; }
 fail() { printf '%serror:%s %s\n' "$red" "$reset" "$*" >&2; exit 1; }
 
-[ "$(uname -s)" = "Darwin" ] || fail "OpenMimir supports macOS for now. Linux and Windows are coming."
+case "$(uname -s)" in
+  Darwin) ;;
+  MINGW* | MSYS* | CYGWIN*)
+    fail "on Windows, install from PowerShell instead: irm https://openmimir.com/install.ps1 | iex" ;;
+  *) fail "OpenMimir runs on macOS and Windows for now. Linux is coming." ;;
+esac
 
 case "$(uname -m)" in
   arm64) target="darwin-arm64" ;;

@@ -4,6 +4,7 @@ import {
   type ChatMessage,
   describeAction,
   type ForemanStep,
+  folderName,
   type MessageSource,
   type SessionEvent,
 } from "@openmimir/protocol";
@@ -90,7 +91,7 @@ function withStepNotes(message: ChatMessage, sessions: SessionManager): string {
     .map((step) => {
       const session = step.sessionId ? sessions.get(step.sessionId) : undefined;
       if (!session) return step.label;
-      const project = session.directory.split("/").filter(Boolean).pop();
+      const project = folderName(session.directory);
       return `${step.label} "${session.title}" (${AGENT_LABELS[session.agent]}, ${project}, ${session.id})`;
     });
   if (notes.length === 0) return message.text;
@@ -179,7 +180,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
     } else {
       lines.push("Recent sessions across all agents (newest first):");
       for (const t of sessions) {
-        const project = t.directory.split("/").filter(Boolean).pop();
+        const project = folderName(t.directory);
         const who =
           t.origin === "mimir" ? "started by you" : t.tracked ? "continued by you" : "started by the user";
         lines.push(
@@ -272,7 +273,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
           return found.map((t) => ({
             id: t.id,
             title: t.title,
-            project: t.directory.split("/").filter(Boolean).pop(),
+            project: folderName(t.directory),
             agent: AGENT_LABELS[t.agent],
             status: statusLabel(t.status),
             lastActive: ago(t.updatedAt),
@@ -302,7 +303,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
           return found.map((t) => ({
             id: t.id,
             title: t.title,
-            project: t.directory.split("/").filter(Boolean).pop(),
+            project: folderName(t.directory),
             agent: AGENT_LABELS[t.agent],
             status: statusLabel(t.status),
             lastActive: ago(t.updatedAt),

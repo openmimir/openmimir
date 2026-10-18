@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
+import { type Command, commandOutput, findAgentCommand, killTree, spawnCommand } from "./process.ts";
 import { readSSE } from "./sse.ts";
 import type { AdapterHealth, AgentAdapter, FileChange, PermissionDecision, SessionSummary } from "./types.ts";
 import { Emitter, matchesProject, type SessionQuery, scoreText } from "./util.ts";
@@ -14,15 +15,22 @@ import { Emitter, matchesProject, type SessionQuery, scoreText } from "./util.ts
 export async function discoverOpenCodeService(
   binary = "opencode",
 ): Promise<{ url: string; username: string; password: string } | undefined> {
-  const path = Bun.which(binary);
-  if (!path) return undefined;
+  const command = findAgentCommand(binary);
+  if (!command) return undefined;
   try {
-    const proc = Bun.spawn([path, "service", "status"], { stdout: "pipe", stderr: "ignore" });
-    const output = (await new Response(proc.stdout).text()).trim();
+    const proc = spawnCommand(command, ["service", "status"], {
+      stdout: "pipe",
+      stderr: "ignore",
+      stdin: "ignore",
+    });
+    const timer = setTimeout(() => killTree(proc), 15_000);
+    const output = (await new Response(proc.stdout as ReadableStream).text()).trim();
     await proc.exited;
+    clearTimeout(timer);
     const url = output.match(/https?:\/\/[^\s]+/)?.[0];
     if (proc.exitCode !== 0 || !url) return undefined;
-    const config = Bun.file(join(homedir(), ".config", "opencode", "service.json"));
+    const configDir = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+    const config = Bun.file(join(configDir, "opencode", "service.json"));
     const password = (await config.exists())
       ? ((await config.json()) as { password?: string }).password
       : undefined;
@@ -30,6 +38,18 @@ export async function discoverOpenCodeService(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Mimir speaks OpenCode 2's API. npm's `opencode-ai` package is still OpenCode 1, so say
+ * so plainly instead of failing on API errors. Returns undefined when the version is fine.
+ */
+export async function openCodeVersionProblem(command: Command | undefined): Promise<string | undefined> {
+  if (!command) return undefined;
+  const output = await commandOutput(command, ["--version"]).catch(() => "");
+  const major = Number(output.match(/(\d+)\.\d+\.\d+/)?.[1]);
+  if (!major || major >= 2) return undefined;
+  return `OpenCode ${output.replace(/^opencode\s+v?/i, "")} is installed, but Mimir needs OpenCode 2: npm install -g @opencode/cli`;
 }
 
 interface OpenCodeSession {
@@ -50,6 +70,8 @@ export interface OpenCodeAdapterOptions {
    */
   manage?: boolean;
   binary?: string;
+  /** Set when the installed OpenCode can't be used, e.g. it is OpenCode 1. */
+  unsupported?: string;
   log?: (message: string) => void;
 }
 
@@ -62,6 +84,11 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
   private child: Subprocess | undefined;
   private streamAbort: AbortController | undefined;
   private stopped = false;
+  /**
+   * When each session's last turn ended, from the event stream. A turn that ends on a
+   * rejected permission leaves no "idle" entry, so the history alone would look busy.
+   */
+  private readonly endedAt = new Map<string, number>();
 
   constructor(options: OpenCodeAdapterOptions) {
     super();
@@ -103,6 +130,7 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
   }
 
   async health(): Promise<AdapterHealth> {
+    if (this.options.unsupported) return { ok: false, error: this.options.unsupported };
     try {
       const info = await this.request<{ data?: { version?: string } } & { version?: string }>(
         "GET",
@@ -119,6 +147,10 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
 
   async start(): Promise<void> {
     this.stopped = false;
+    if (this.options.unsupported) {
+      this.log(this.options.unsupported);
+      return;
+    }
     let health = await this.health();
     if (!health.ok && !health.answered && this.options.manage) {
       await this.spawn();
@@ -139,7 +171,7 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     this.stopped = true;
     this.streamAbort?.abort();
     if (this.child) {
-      this.child.kill();
+      killTree(this.child);
       await this.child.exited.catch(() => undefined);
       this.child = undefined;
     }
@@ -149,9 +181,15 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     const port = new URL(this.url).port || "4096";
     const hostname = new URL(this.url).hostname;
     const binary = this.options.binary ?? "opencode";
+    const command = findAgentCommand(binary);
+    if (!command) {
+      this.log(`could not start OpenCode: \`${binary}\` is not on PATH`);
+      return;
+    }
     this.log(`starting \`${binary} serve --port ${port}\``);
     try {
-      this.child = Bun.spawn([binary, "serve", "--port", port, "--hostname", hostname], {
+      this.child = spawnCommand(command, ["serve", "--port", port, "--hostname", hostname], {
+        stdin: "ignore",
         env: {
           ...process.env,
           OPENCODE_SERVER_PASSWORD: this.options.password ?? "",
@@ -209,6 +247,14 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
     const d = event.data ?? {};
     const externalId = typeof d.sessionID === "string" ? d.sessionID : undefined;
     if (!externalId) return;
+    if (event.type === "session.execution.started") this.endedAt.delete(externalId);
+    if (
+      event.type === "session.execution.succeeded" ||
+      event.type === "session.execution.failed" ||
+      event.type === "session.execution.interrupted"
+    ) {
+      this.endedAt.set(externalId, Date.now());
+    }
     switch (event.type) {
       case "session.execution.started":
         this.emit({ type: "started", externalId });
@@ -297,6 +343,8 @@ export class OpenCodeAdapter extends Emitter implements AgentAdapter {
   private async looksBusy(session: { id: string; time: { updated: number; idle?: number } }) {
     if (Date.now() - session.time.updated > STALE_MS) return false;
     if (session.time.idle && session.time.idle >= session.time.updated) return false;
+    const ended = this.endedAt.get(session.id);
+    if (ended !== undefined && ended >= session.time.updated - 5_000) return false;
     try {
       const newest = await this.request<{ data: Array<{ type: string; time?: { completed?: number } }> }>(
         "GET",

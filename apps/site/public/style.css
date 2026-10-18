@@ -44,7 +44,7 @@ a {
 
 code,
 kbd {
-  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, monospace;
 }
 
 :not(.install) > code {
@@ -225,12 +225,65 @@ h3 {
   font-size: 17px;
 }
 
-/* Install command */
+/* Install command, with a macOS / Windows switch */
+.installer {
+  margin-top: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 100%;
+}
+
+.cta .installer,
+.doc-cta .installer {
+  align-items: center;
+}
+
+.os-tabs {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.02);
+}
+
+.os-tabs button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 7px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    background 0.2s;
+}
+
+.os-tabs button:hover {
+  color: var(--bright);
+}
+
+.os-tabs button[aria-selected="true"] {
+  color: var(--bright);
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.install-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
 .install {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin-top: 32px;
   padding: 7px 7px 7px 16px;
   border: 1px solid var(--line-2);
   border-radius: 14px;
@@ -243,7 +296,8 @@ h3 {
 
 .install .prompt {
   color: var(--accent);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, monospace;
+  white-space: nowrap;
 }
 
 .install code {
@@ -849,7 +903,7 @@ details p {
   background: radial-gradient(30rem 16rem at 50% 120%, rgb(54 226 196 / 0.18), transparent 70%), var(--panel);
 }
 
-.cta .install {
+.cta .installer {
   margin-top: 18px;
 }
 

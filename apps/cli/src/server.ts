@@ -76,9 +76,13 @@ export function startServer(options: ServerOptions): Server<SocketData> {
   }
 
   async function serveStatic(pathname: string): Promise<Response> {
-    const relative = normalize(pathname).replace(/^(\.\.[/\\])+/, "");
+    // Only plain asset names. Anything else (backslashes, `:` streams, Windows device
+    // names like CON or NUL) gets the app shell instead of touching the file system.
+    const safe =
+      /^(\/[\w][\w.-]*)+$/.test(pathname) && !/(^|\/)(con|prn|aux|nul|com\d|lpt\d)(\.|\/|$)/i.test(pathname);
+    const relative = safe ? normalize(pathname) : "/";
     let file = Bun.file(join(options.webDir, relative));
-    if (relative === "/" || !(await file.exists())) {
+    if (relative === "/" || relative === "\\" || !(await file.exists())) {
       file = Bun.file(join(options.webDir, "index.html"));
       if (!(await file.exists())) {
         return new Response(
@@ -88,7 +92,7 @@ export function startServer(options: ServerOptions): Server<SocketData> {
       }
       return new Response(file, { headers: { "cache-control": "no-store" } });
     }
-    const immutable = relative.startsWith("/assets/");
+    const immutable = pathname.startsWith("/assets/");
     return new Response(file, {
       headers: { "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache" },
     });
@@ -171,7 +175,7 @@ export function startServer(options: ServerOptions): Server<SocketData> {
       }
 
       if (level === "denied") {
-        return new Response("Not paired. Run `mimir pair` on the Mac running Mimir.", { status: 401 });
+        return new Response("Not paired. Run `mimir pair` on the computer running Mimir.", { status: 401 });
       }
 
       if (url.pathname === "/api/bootstrap") {

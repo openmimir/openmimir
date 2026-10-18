@@ -82,6 +82,11 @@ export function sessionKey(agent: AgentKind, externalId: string): string {
   return `${agent}:${externalId}`;
 }
 
+/** Last folder of a path on any OS: "web-app" for "/Users/me/web-app" or "C:\\code\\web-app". */
+export function folderName(directory: string): string {
+  return directory.split(/[\\/]/).filter(Boolean).pop() ?? directory;
+}
+
 /**
  * How dangerous an action is. Decides where it may be approved:
  * - `auto`: runs without asking (reads, searches, tests)

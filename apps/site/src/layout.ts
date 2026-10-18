@@ -2,6 +2,7 @@
 
 export const SITE = "https://openmimir.com";
 export const INSTALL = "curl -fsSL https://openmimir.com/install.sh | bash";
+export const INSTALL_WINDOWS = "irm https://openmimir.com/install.ps1 | iex";
 
 export interface Faq {
   q: string;
@@ -59,11 +60,19 @@ export function footer(): string {
     </footer>`;
 }
 
+/** The install command with a macOS / Windows switch; site.js picks the visitor's OS. */
 export function installBox(): string {
-  return `<div class="install">
-          <span class="prompt">$</span>
-          <code>${INSTALL}</code>
-          <button type="button" class="copy2" aria-label="Copy install command">Copy</button>
+  return `<div class="installer" data-installer>
+          <div class="os-tabs" role="tablist" aria-label="Your operating system">
+            <button type="button" role="tab" data-os="mac" aria-selected="true">macOS</button>
+            <button type="button" role="tab" data-os="windows" aria-selected="false">Windows</button>
+          </div>
+          <div class="install">
+            <span class="prompt" data-prompt>$</span>
+            <code data-cmd>${INSTALL}</code>
+            <button type="button" class="copy" aria-label="Copy install command">Copy</button>
+          </div>
+          <p class="install-note" data-note>In Terminal. Apple Silicon or Intel.</p>
         </div>`;
 }
 
@@ -141,7 +150,7 @@ export function render(page: Page, related: Page[]): string {
         </div>
         <section class="cta doc-cta">
           <h2>Try OpenMimir</h2>
-          <p>Free and open source. Runs on your Mac with your own API keys.</p>
+          <p>Free and open source. Runs on your Mac or Windows PC with your own API keys.</p>
           ${installBox()}
         </section>
         ${faq}

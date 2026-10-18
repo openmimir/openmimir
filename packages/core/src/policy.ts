@@ -22,6 +22,22 @@ const SCREEN_ONLY = [
   /\bsudo\b/,
   /\bssh\b/,
   /\bcurl\b[^|]*\|\s*(ba)?sh\b/,
+  // Windows. PowerShell ignores case and has aliases: rm, del, rd, ri, erase are
+  // Remove-Item, and iex is Invoke-Expression.
+  /\b(remove-item|ri|rm|rmdir|rd|del|erase)\b[^\n|;]*\s-r(e(c(u(r(se?)?)?)?)?)?\b/i,
+  /\b(rd|rmdir|del|erase)\b[^\n|;]*\s\/s\b/i,
+  /\b(format-volume|clear-disk|initialize-disk|diskpart)\b/i,
+  /\bformat(\.com)?\s+[a-z]:/i,
+  /\b(stop-computer|restart-computer)\b/i,
+  /\bshutdown(\.exe)?\s+[/-][srp]\b/i,
+  /\b(iex|invoke-expression)\b/i,
+  /\bset-executionpolicy\b/i,
+  /-verb\s+runas\b/i,
+  /\brunas(\.exe)?\s/i,
+  /\breg(\.exe)?\s+(delete|add|import)\b/i,
+  /\bremove-itemproperty\b/i,
+  /\b(vssadmin|wbadmin|bcdedit)\b/i,
+  /\b(set|add)-mppreference\b/i,
 ];
 
 export function classifyApproval(action: string, resources: string[]): RiskTier {
@@ -63,6 +79,29 @@ export const GUARDED_SHELL_COMMANDS = [
   "*drop database*",
   "*| sh*",
   "*| bash*",
+  // Windows (PowerShell and cmd.exe). OpenCode matches these case-insensitively on
+  // Windows; Claude Code also maps aliases such as rm, del and iex to their cmdlets.
+  "*Remove-Item*-Recurse*",
+  "*Remove-Item*-r *",
+  "*rd /s*",
+  "*rmdir /s*",
+  "*del /s*",
+  "*Format-Volume*",
+  "*Clear-Disk*",
+  "*Stop-Computer*",
+  "*Restart-Computer*",
+  "*shutdown /s*",
+  "*shutdown /r*",
+  "*Invoke-Expression*",
+  "*| iex*",
+  "*Set-ExecutionPolicy*",
+  "*Start-Process*-Verb RunAs*",
+  "*reg delete*",
+  "*Remove-ItemProperty*",
+  "*vssadmin*",
+  "*bcdedit*",
+  "*Set-MpPreference*",
+  "*Add-MpPreference*",
 ];
 
 export type ApprovalCheck = { allowed: true } | { allowed: false; reason: string };

@@ -6,17 +6,22 @@ import type { Page } from "./layout";
 const CLAUDE_VOICE_DOCS = "https://code.claude.com/docs/en/voice-dictation";
 const CLAUDE_RC_DOCS = "https://code.claude.com/docs/en/remote-control";
 const CODEX_REMOTE_DOCS = "https://learn.chatgpt.com/docs/remote";
+const CLAUDE_SETUP_DOCS = "https://code.claude.com/docs/en/setup";
+const CLAUDE_POWERSHELL_DOCS = "https://code.claude.com/docs/en/tools-reference";
+const CODEX_WINDOWS_DOCS = "https://learn.chatgpt.com/docs/windows/windows-sandbox";
+const OPENCODE_V2_DOCS = "https://opencode.ai/v2/docs";
 
 const phoneSetup = `<h2>Setting it up on a phone or iPad</h2>
-          <p>OpenMimir runs on your Mac and serves its interface to any browser. Browsers only allow the microphone on
-          HTTPS, so put your Mac on a private network with an HTTPS name, and pair the device once:</p>
+          <p>OpenMimir runs on your computer (Mac or Windows) and serves its interface to any browser. Browsers only
+          allow the microphone on HTTPS, so put your computer on a private network with an HTTPS name, and pair the
+          device once:</p>
           <ol>
-            <li>Install and start OpenMimir on the Mac: <code>mimir init</code>, then <code>mimir</code>.</li>
+            <li>Install and start OpenMimir on your computer: <code>mimir init</code>, then <code>mimir</code>.</li>
             <li>Expose it privately, for example with Tailscale Serve (<code>tailscale serve --bg 4747</code>) or a
             Cloudflare Tunnel with access control.</li>
             <li>Run <code>mimir pair</code> and open the link on your phone or iPad. Add it to the home screen.</li>
           </ol>
-          <p>Your Mac has to stay on and awake, since that is where the agents run.</p>`;
+          <p>Your computer has to stay on and awake, since that is where the agents run.</p>`;
 
 export const pages: Page[] = [
   // claude code voice (720), claude code voice mode (720), claude code voice input (210), speech to text (70)
@@ -116,7 +121,7 @@ export const pages: Page[] = [
             on a trainer, a treadmill, cooking, walking the dog.</li>
             <li><b>Summaries instead of transcripts.</b> Ask "is the migration done?" and get one sentence back.</li>
             <li><b>Not only Claude.</b> The same conversation covers Codex and OpenCode sessions.</li>
-            <li><b>Your keys, your machine.</b> Works with API keys. Everything except the model calls stays on your Mac.</li>
+            <li><b>Your keys, your machine.</b> Works with API keys. Everything except the model calls stays on your computer.</li>
           </ul>
 
           <table>
@@ -145,7 +150,7 @@ export const pages: Page[] = [
         a: "No. It reads Claude Code's local session history and continues sessions through the Claude Code CLI.",
       },
       {
-        q: "Does my code leave my Mac?",
+        q: "Does my code leave my computer?",
         a: "Your code stays where Claude Code runs. OpenMimir sends your requests to the model provider you choose and audio to OpenAI's voice model, and has no telemetry.",
       },
     ],
@@ -199,6 +204,99 @@ export const pages: Page[] = [
     ],
   },
 
+  // claude code windows (2400), codex windows (1900), codex cli windows (480), claude code on windows (480),
+  // opencode windows (390), claude code powershell (260)
+  {
+    path: "/windows",
+    title: "Claude Code, Codex and OpenCode on Windows, natively · OpenMimir",
+    description:
+      "Run Claude Code, Codex and OpenCode natively on Windows: installing each, PowerShell vs Git Bash, Codex's Windows sandbox, the OpenCode 1 vs 2 trap, and one voice over all of them.",
+    eyebrow: "Windows",
+    h1: "Coding agents on Windows, natively",
+    lead: "Claude Code, Codex and OpenCode all run on Windows without WSL now. Here is what to install, what differs from macOS, and how to drive all three from one conversation.",
+    summary: "Installing each agent natively, PowerShell vs Git Bash, sandboxes, and OpenMimir on Windows.",
+    body: `
+          <h2>Claude Code</h2>
+          <p>Install it from PowerShell with <code>irm https://claude.ai/install.ps1 | iex</code>; no admin rights or
+          Node.js needed (<a href="${CLAUDE_SETUP_DOCS}">official setup guide</a>). The installer puts
+          <code>claude.exe</code> in <code>%USERPROFILE%\\.local\\bin</code> and may ask you to add that folder to
+          your PATH yourself. Two more Windows details matter:</p>
+          <ul>
+            <li><b>Shell.</b> With <a href="https://git-scm.com/downloads/win">Git for Windows</a> installed, Claude runs
+            commands in Git Bash and also has a <a href="${CLAUDE_POWERSHELL_DOCS}">PowerShell tool</a>. Without it,
+            PowerShell is its only shell. Either works.</li>
+            <li><b>Permission rules.</b> PowerShell commands follow <code>PowerShell(...)</code> rules, not
+            <code>Bash(...)</code> ones, so a deny rule like <code>Bash(git push *)</code> needs a
+            <code>PowerShell(git push *)</code> twin. Claude Code matches aliases, so
+            <code>PowerShell(Remove-Item *)</code> also covers <code>rm</code> and <code>del</code>.</li>
+          </ul>
+
+          <h2>Codex</h2>
+          <p><code>npm install -g @openai/codex</code> gives you the Codex CLI on Windows. It runs commands in its own
+          <a href="${CODEX_WINDOWS_DOCS}">Windows sandbox</a>: on recent Windows 11 builds it uses Microsoft's new
+          isolation (no admin needed), and elsewhere a sandbox that an administrator sets up once. Windows 11 is the
+          recommended base; Windows 10 works on a best-effort basis.</p>
+          <p>One thing to know: until a sandbox is chosen, Codex can read your code but every write is rejected, even
+          with <code>sandbox_mode = "workspace-write"</code>. Run <code>codex</code> once and pick one, or add this to
+          <code>%USERPROFILE%\\.codex\\config.toml</code>:</p>
+          <p><code>[windows]</code><br /><code>sandbox = "mxc"</code></p>
+
+          <h2>OpenCode</h2>
+          <p>This is where most people trip up: <code>npm install -g opencode-ai</code> still installs
+          <b>OpenCode 1</b>. OpenCode 2 is <code>npm install -g @opencode/cli</code>, or a standalone zip from the
+          <a href="${OPENCODE_V2_DOCS}">OpenCode 2 docs</a> (Windows x64 and ARM64). Check with
+          <code>opencode --version</code>. Its background server works on Windows too:
+          <code>opencode service start</code>.</p>
+
+          <h2>Native or WSL?</h2>
+          <p>Native is simplest when your projects live on the Windows drive and you use Windows tools. WSL 2 gives you
+          a Linux toolchain and Claude Code's sandboxing, at the cost of a second file system. Agents installed inside WSL
+          keep their history inside WSL too, so tools running on Windows don't see those sessions.</p>
+
+          <h2>One conversation over all three</h2>
+          <p>OpenMimir runs natively on Windows 10 and 11 (x64 and Arm). Install it from PowerShell, no admin rights
+          needed:</p>
+          <p><code>irm https://openmimir.com/install.ps1 | iex</code></p>
+          <ul>
+            <li>It finds Claude Code, Codex and OpenCode however you installed them, including npm's
+            <code>.cmd</code> shims and install folders that never made it onto your PATH, and reads their history
+            from <code>%USERPROFILE%</code>.</li>
+            <li>It uses your OpenCode background service when it runs, so its messages show up live in OpenCode, and
+            starts its own OpenCode server otherwise.</li>
+            <li>It sends prompts to the agents on standard input, so nothing gets mangled by Windows command-line
+            quoting or cut off by its length limit.</li>
+            <li>Its safety rules cover PowerShell and cmd as well as Bash: <code>Remove-Item -Recurse</code>,
+            <code>rd /s</code>, <code>irm ... | iex</code>, <code>Stop-Computer</code> and friends wait for an on-screen
+            approval, and voice can never approve them.</li>
+            <li>Stopping a session stops the agent and everything it started, and closing Mimir's window or pressing
+            Ctrl+C takes its agents down with it.</li>
+            <li><code>mimir doctor</code> tells you if something is missing, such as Codex's Windows sandbox.</li>
+            <li>Press <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Space</kbd> in the browser to talk.</li>
+          </ul>`,
+    faq: [
+      {
+        q: "Does Claude Code work on Windows without WSL?",
+        a: "Yes. The native installer works from PowerShell or CMD on Windows 10 1809 and later. Git for Windows is optional.",
+      },
+      {
+        q: "Does the Codex CLI work on Windows?",
+        a: "Yes, natively, with its own Windows sandbox. Windows 11 is recommended.",
+      },
+      {
+        q: "Why does OpenMimir say my OpenCode is too old?",
+        a: "You probably have OpenCode 1 from <code>npm install -g opencode-ai</code>. OpenMimir needs OpenCode 2: <code>npm install -g @opencode/cli</code>.",
+      },
+      {
+        q: "Why can't Codex edit files on Windows?",
+        a: 'Codex rejects writes until one of its Windows sandboxes is chosen. Run <code>codex</code> once and pick one, or add <code>[windows]</code> with <code>sandbox = "mxc"</code> to <code>%USERPROFILE%\\.codex\\config.toml</code>.',
+      },
+      {
+        q: "Does OpenMimir need admin rights on Windows?",
+        a: "No. It installs into your user profile and adds itself to your user PATH.",
+      },
+    ],
+  },
+
   // claude code dashboard (480), claude code sessions (210), resume session (260), session manager (90), orchestrator (260)
   {
     path: "/coding-agent-dashboard",
@@ -241,7 +339,7 @@ export const pages: Page[] = [
       },
       {
         q: "Where is the data stored?",
-        a: "In <code>~/.openmimir</code> on your Mac. Agent history stays where each agent keeps it.",
+        a: "In <code>~/.openmimir</code> on your computer (<code>%USERPROFILE%\\.openmimir</code> on Windows). Agent history stays where each agent keeps it.",
       },
     ],
   },
@@ -254,7 +352,7 @@ export const pages: Page[] = [
       "Talk to your OpenCode sessions from a phone or iPad. OpenMimir drives your OpenCode service, so every message also shows up live in the OpenCode app.",
     eyebrow: "OpenCode · Remote",
     h1: "Use OpenCode from your phone, by voice",
-    lead: "OpenMimir connects to your OpenCode background service. Talk to it from a phone or iPad, and everything it sends appears live in OpenCode on your Mac.",
+    lead: "OpenMimir connects to your OpenCode background service. Talk to it from a phone or iPad, and everything it sends appears live in OpenCode on your computer.",
     summary: "Drive OpenCode sessions remotely, with every message visible in the OpenCode app.",
     body: `
           <h2>How it connects</h2>
@@ -319,7 +417,7 @@ export const pages: Page[] = [
           </ul>
 
           <h2>The setup</h2>
-          <p>OpenMimir runs on the Mac at the desk. An iPad on the handlebars shows trainer mode: the conversation in large
+          <p>OpenMimir runs on the computer at the desk. An iPad on the handlebars shows trainer mode: the conversation in large
           type, live captions of what it heard, how many sessions are running, which ones need you, and huge approve and
           reject buttons. Earbuds
           carry the voice. The same setup works on a treadmill or a walking pad.</p>

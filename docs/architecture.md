@@ -1,6 +1,6 @@
 # Architecture
 
-Mimir is one server process on the user's Mac. Every interface (desk chat, trainer screen, later a
+Mimir is one server process on the user's computer (macOS or Windows). Every interface (desk chat, trainer screen, later a
 desktop app and phone calls) is a client of that server.
 
 ```

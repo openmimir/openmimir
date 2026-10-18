@@ -1,4 +1,4 @@
-import type { SessionStatus } from "@openmimir/protocol";
+import { folderName, type SessionStatus } from "@openmimir/protocol";
 import { AlertTriangle, CheckCircle2, CircleDashed, Hand, LoaderCircle, type LucideIcon } from "lucide-react";
 
 export const STATUS: Record<SessionStatus, { label: string; color: string; bg: string; icon: LucideIcon }> = {
@@ -23,7 +23,7 @@ export function timeAgo(timestamp: number, now = Date.now()): string {
 }
 
 export function projectName(directory: string): string {
-  return directory.split("/").filter(Boolean).pop() ?? directory;
+  return folderName(directory);
 }
 
 export function formatDuration(seconds: number): string {

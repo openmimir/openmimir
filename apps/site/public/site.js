@@ -1,13 +1,62 @@
-// Copy buttons
-for (const button of document.querySelectorAll("#copy, .copy2")) {
-  button.addEventListener("click", async () => {
-    await navigator.clipboard.writeText("curl -fsSL https://openmimir.com/install.sh | bash");
+// Install commands and shortcuts for the visitor's OS. Without JavaScript the macOS ones show.
+const PLATFORMS = {
+  mac: {
+    prompt: "$",
+    cmd: "curl -fsSL https://openmimir.com/install.sh | bash",
+    note: "In Terminal. Apple Silicon or Intel.",
+    shortcut: "⌘⇧Space",
+    keys: ["⌘", "⇧", "Space"],
+  },
+  windows: {
+    prompt: "PS>",
+    cmd: "irm https://openmimir.com/install.ps1 | iex",
+    note: "In PowerShell. Windows 10 or 11, 64-bit. No admin rights needed.",
+    shortcut: "Ctrl+Shift+Space",
+    keys: ["Ctrl", "Shift", "Space"],
+  },
+};
+const detected =
+  /Windows/i.test(navigator.userAgentData?.platform ?? "") || /Windows/i.test(navigator.userAgent)
+    ? "windows"
+    : "mac";
+
+function showPlatform(os) {
+  const p = PLATFORMS[os];
+  for (const box of document.querySelectorAll("[data-installer]")) {
+    for (const tab of box.querySelectorAll("[data-os]")) {
+      tab.setAttribute("aria-selected", String(tab.dataset.os === os));
+    }
+    box.querySelector("[data-prompt]").textContent = p.prompt;
+    box.querySelector("[data-cmd]").textContent = p.cmd;
+    const note = box.querySelector("[data-note]");
+    if (note) note.textContent = p.note;
+  }
+  for (const el of document.querySelectorAll("[data-shortcut]")) el.textContent = p.shortcut;
+  for (const el of document.querySelectorAll("[data-keys]")) {
+    el.replaceChildren(
+      ...p.keys.map((key) => {
+        const kbd = document.createElement("kbd");
+        kbd.textContent = key;
+        return kbd;
+      }),
+    );
+  }
+}
+
+for (const tab of document.querySelectorAll("[data-installer] [data-os]")) {
+  tab.addEventListener("click", () => showPlatform(tab.dataset.os));
+}
+for (const box of document.querySelectorAll("[data-installer]")) {
+  const button = box.querySelector(".copy");
+  button?.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(box.querySelector("[data-cmd]").textContent);
     button.textContent = "Copied";
     setTimeout(() => {
       button.textContent = "Copy";
     }, 1500);
   });
 }
+showPlatform(detected);
 
 // Fade sections in as they scroll into view
 const observer = new IntersectionObserver(

@@ -1,8 +1,14 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
-import { networkInterfaces } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir, networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
-import { discoverOpenCodeService, OpenCodeAdapter } from "@openmimir/adapters";
+import { fileURLToPath } from "node:url";
+import {
+  discoverOpenCodeService,
+  findAgentCommand,
+  OpenCodeAdapter,
+  openCodeVersionProblem,
+} from "@openmimir/adapters";
 import { configPath, loadConfig, type MimirConfig, saveConfig } from "@openmimir/core";
 import { AGENT_LABELS } from "@openmimir/protocol";
 import pkg from "../package.json" with { type: "json" };
@@ -11,6 +17,12 @@ import { startServer } from "./server.ts";
 
 const VERSION = pkg.version;
 
+// A console window shows ✓ and ✗ fine, but PowerShell decodes piped or redirected
+// output (mimir > mimir.log) with the console's legacy code page, which garbles them.
+const PLAIN = process.platform === "win32" && !process.stdout.isTTY;
+const YES = PLAIN ? "ok" : "✓";
+const NO = PLAIN ? "no" : "✗";
+
 function log(message: string) {
   const time = new Date().toLocaleTimeString([], { hour12: false });
   console.log(`${time} ${message}`);
@@ -18,7 +30,7 @@ function log(message: string) {
 
 function webDir(): string {
   if (process.env.MIMIR_WEB_DIR) return process.env.MIMIR_WEB_DIR;
-  const here = dirname(new URL(import.meta.url).pathname);
+  const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     join(here, "web"), // npm bundle: dist/index.js + dist/web
     join(dirname(process.execPath), "web"), // standalone binary next to web/
@@ -64,7 +76,9 @@ async function serve() {
   Voice     ${app.voice ? config.voice.model : "off (no OpenAI key)"}
   Agents    ${app
     .info()
-    .agents.map((a) => `${AGENT_LABELS[a.kind]} ${a.available ? "✓" : `✗ (${a.detail ?? "unavailable"})`}`)
+    .agents.map(
+      (a) => `${AGENT_LABELS[a.kind]} ${a.available ? YES : `${NO} (${a.detail ?? "unavailable"})`}`,
+    )
     .join(", ")}
 `);
 
@@ -80,6 +94,11 @@ async function serve() {
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+  if (process.platform === "win32") {
+    // Closing the console window (SIGHUP) or Ctrl+Break: stop the agents Mimir started too.
+    process.on("SIGHUP", shutdown);
+    process.on("SIGBREAK", shutdown);
+  }
 }
 
 function ask(question: string, fallback?: string): string {
@@ -134,7 +153,9 @@ function pair() {
     console.log(`  https://${host}/pair?code=${config.server.pairingSecret}`);
   }
   if (config.server.host === "127.0.0.1" || config.server.host === "localhost") {
-    console.log(`  (Mimir only listens on this Mac. Put Tailscale Serve or Cloudflare Tunnel in front of`);
+    console.log(
+      `  (Mimir only listens on this computer. Put Tailscale Serve or Cloudflare Tunnel in front of`,
+    );
     console.log(
       `   port ${config.server.port}, and add its hostname to server.allowedHosts in ${configPath()}.)`,
     );
@@ -149,18 +170,38 @@ function pair() {
   console.log(`\nAnyone with this link can control your agents. Treat it like a password.`);
 }
 
+/**
+ * On Windows, Codex rejects every write until one of its Windows sandboxes is chosen, even
+ * when its sandbox mode allows writes. Codex asks the first time you run it interactively.
+ */
+function codexWindowsSandbox(): { ok: boolean; detail: string } {
+  const file = join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml");
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const windows = text.match(/^\s*\[windows\]([^[]*)/m)?.[1] ?? "";
+  const sandbox = windows.match(/^\s*sandbox\s*=\s*"([^"]+)"/m)?.[1];
+  if (sandbox) return { ok: true, detail: `${sandbox} sandbox` };
+  if (/^\s*prefer_mxc\s*=\s*true/m.test(text)) return { ok: true, detail: "mxc sandbox" };
+  return {
+    ok: false,
+    detail: `none chosen, so Codex can't edit files. Run codex once and pick one, or add [windows] sandbox = "mxc" to ${file}`,
+  };
+}
+
 async function doctor() {
   const config = loadConfig();
   const check = (ok: boolean, label: string, detail = "") =>
-    console.log(`${ok ? "✓" : "✗"} ${label}${detail ? `  ${detail}` : ""}`);
+    console.log(`${ok ? YES : NO} ${label}${detail ? `  ${detail}` : ""}`);
   check(true, "config", configPath());
   check(Boolean(config.keys.openai), "OpenAI key", config.keys.openai ? "" : "needed for voice");
   const provider = config.foreman.model.split("/")[0];
   const foremanKey =
     provider === "openai" ? config.keys.openai : provider === "anthropic" ? config.keys.anthropic : undefined;
   check(Boolean(foremanKey), `foreman ${config.foreman.model}`, foremanKey ? "" : `no ${provider} key`);
-  const which = Bun.which("opencode");
+  const opencode = findAgentCommand("opencode");
+  const which = opencode?.path;
   check(Boolean(which), "opencode binary", which ?? "install from https://opencode.ai");
+  const problem = await openCodeVersionProblem(opencode);
+  if (problem) check(false, "OpenCode version", problem);
   const service = config.opencode.url === "auto" ? await discoverOpenCodeService() : undefined;
   const target = service ?? {
     url: config.opencode.url === "auto" ? "http://127.0.0.1:4097" : config.opencode.url,
@@ -181,13 +222,19 @@ async function doctor() {
     ["claude", config.agents.claude],
     ["codex", config.agents.codex],
   ] as const) {
-    const path = Bun.which(kind);
+    const path = findAgentCommand(kind)?.path;
     check(
       Boolean(path) || !enabled,
       `${AGENT_LABELS[kind]}`,
       !enabled ? "turned off" : (path ?? "not installed (optional)"),
     );
   }
+  if (process.platform === "win32" && config.agents.codex && findAgentCommand("codex")) {
+    const sandbox = codexWindowsSandbox();
+    check(sandbox.ok, "Codex Windows sandbox", sandbox.detail);
+  }
+  const git = findAgentCommand("git")?.path;
+  check(Boolean(git), "git", git ?? "not installed (needed to show Claude Code and Codex changes)");
   if (config.keys.openai) {
     const response = await fetch(`https://api.openai.com/v1/models/${config.voice.model}`, {
       headers: { authorization: `Bearer ${config.keys.openai}` },

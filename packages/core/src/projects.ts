@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import type { ProjectRef } from "@openmimir/protocol";
 import { expandHome } from "./config.ts";
 
@@ -17,7 +17,7 @@ export class ProjectIndex {
     const found = new Map<string, ProjectRef>();
     for (const project of this.explicit) {
       const directory = expandHome(project.directory);
-      found.set(directory, { name: project.name, directory });
+      found.set(pathKey(directory), { name: project.name, directory });
     }
     for (const root of this.roots.map(expandHome)) {
       if (!existsSync(root)) continue;
@@ -30,7 +30,8 @@ export class ProjectIndex {
           continue;
         }
         if (!existsSync(join(directory, ".git"))) continue;
-        if (!found.has(directory)) found.set(directory, { name: basename(directory), directory });
+        if (!found.has(pathKey(directory)))
+          found.set(pathKey(directory), { name: basename(directory), directory });
       }
     }
     const projects = [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -40,7 +41,7 @@ export class ProjectIndex {
 
   /** Resolve a spoken or typed project name to a directory. */
   resolve(nameOrPath: string): ProjectRef | undefined {
-    if (nameOrPath.startsWith("/") || nameOrPath.startsWith("~")) {
+    if (isAbsolute(nameOrPath) || nameOrPath.startsWith("~")) {
       const directory = expandHome(nameOrPath);
       return existsSync(directory) ? { name: basename(directory), directory } : undefined;
     }
@@ -51,6 +52,11 @@ export class ProjectIndex {
       projects.find((p) => normalize(p.name).includes(wanted) || wanted.includes(normalize(p.name)))
     );
   }
+}
+
+/** Windows paths are case-insensitive, so `C:\Code\app` and `c:\code\app` are one project. */
+function pathKey(directory: string): string {
+  return process.platform === "win32" ? directory.toLowerCase() : directory;
 }
 
 /** Voice transcripts say "open mimir" for "openmimir"; compare loosely. */

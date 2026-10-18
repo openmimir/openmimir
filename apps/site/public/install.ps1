@@ -69,15 +69,19 @@ function Install-OpenMimir {
     $exe = Join-Path $installDir "mimir.exe"
     # Leftovers from an earlier update of a running Mimir.
     Get-ChildItem -Path $installDir -Filter "mimir.exe.old-*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    $old = $null
     if (Test-Path $exe) {
       # A running exe can't be overwritten, but it can be renamed out of the way.
-      Rename-Item -Path $exe -NewName ("mimir.exe.old-" + [DateTime]::Now.ToString("yyyyMMddHHmmss")) -Force
+      $old = Join-Path $installDir ("mimir.exe.old-" + [DateTime]::Now.ToString("yyyyMMddHHmmss"))
+      Rename-Item -Path $exe -NewName (Split-Path $old -Leaf) -Force
     }
     $web = Join-Path $installDir "web"
     if (Test-Path $web) { Remove-Item -Path $web -Recurse -Force }
     Move-Item -Path (Join-Path $unpacked "mimir.exe") -Destination $exe
     Move-Item -Path (Join-Path $unpacked "web") -Destination $web
     Unblock-File -Path $exe -ErrorAction SilentlyContinue
+    # Gone right away unless that Mimir is still running; then the next update removes it.
+    if ($old) { Remove-Item -Path $old -Force -ErrorAction SilentlyContinue }
 
     if (-not (Test-Path $exe)) {
       Write-Host "mimir.exe disappeared right after installing. Your antivirus may have removed it;" -ForegroundColor Red

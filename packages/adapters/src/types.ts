@@ -15,6 +15,8 @@ export type AdapterEvent =
   | { type: "succeeded"; externalId: string }
   | { type: "failed"; externalId: string; error: string }
   | { type: "interrupted"; externalId: string; reason: string }
+  /** The session waits for the user in its own window, where Mimir can't answer for them. */
+  | { type: "waiting"; externalId: string; reason: string }
   | {
       type: "permission.asked";
       externalId: string;
@@ -60,6 +62,13 @@ export interface SessionSummary {
   /** True if the agent is known to be working on it right now. */
   running: boolean;
   lastText?: string;
+  /**
+   * Open in one of the user's windows right now (a terminal, an IDE, a desktop app).
+   * Messages to it show up there.
+   */
+  open?: boolean;
+  /** What the open window is waiting for, e.g. "permission prompt". */
+  waitingFor?: string;
 }
 
 export interface AgentAdapter {

@@ -45,7 +45,16 @@ started. Continuing an existing session is the same call as following up on one 
   apps only update live from their own server, so messages written by another server stay invisible
   until the session is reopened. Mimir starts a private `opencode serve` only if no service exists. It supports approvals, so Mimir adds
   session rules that force risky shell commands to ask (merged with the session's own rules).
-- **Claude Code** runs one headless turn per message (`claude -p --resume <id>`), with stream-json in
+- **Claude Code** sessions that are open somewhere (a terminal, an IDE, the desktop app, agent view)
+  are listed in Claude Code's registry, `~/.claude/sessions/<pid>.json`, with their live status and an
+  inbox for [cross-session messages](https://code.claude.com/docs/en/cross-session-messaging) (a Unix
+  socket, or a named pipe on Windows, authenticated with the `peerToken` in the session's key file).
+  Mimir marks them open, takes their state (busy, waiting, idle) from there, and delivers messages to
+  them through the inbox, in the `<cross-session-message from-name="OpenMimir">` form, so they appear
+  in that window from "@OpenMimir" and run under that window's own permissions. Mimir follows the
+  session in the registry until its turn is over. A second headless process on an open conversation
+  would be invisible in the window, so Mimir never starts one.
+- Other **Claude Code** sessions run one headless turn per message (`claude -p --resume <id>`), with stream-json in
   and out and `--permission-prompt-tool stdio`: the channel Claude's Agent SDK uses, so whatever
   Claude Code would ask at the desk (per the user's own settings) arrives as a `can_use_tool` request
   that Mimir answers on stdin. Risky commands become ask rules in a `--settings` file; ask rules win

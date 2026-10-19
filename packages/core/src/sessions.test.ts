@@ -219,6 +219,29 @@ describe("SessionManager approvals", () => {
   });
 });
 
+describe("SessionManager windows", () => {
+  test("a session waiting for its user in its own window needs them", async () => {
+    const { adapter, manager, status } = setup();
+    adapter.recent = [summary("w", { open: true, waitingFor: "permission prompt" })];
+    await manager.refresh(true);
+    expect(status("opencode:w")).toBe("needs_you");
+    expect(manager.get("opencode:w")).toMatchObject({ open: true, waitingFor: "permission prompt" });
+  });
+
+  test("a window Mimir messaged is announced when it waits, and clears when it goes on", async () => {
+    const { adapter, manager, spoken, status } = setup();
+    adapter.recent = [summary("w", { open: true })];
+    await manager.refresh(true);
+    await manager.message("opencode:w", "go");
+    adapter.emit({ type: "waiting", externalId: "w", reason: "permission prompt" });
+    expect(status("opencode:w")).toBe("needs_you");
+    expect(spoken.at(-1)?.text).toContain("waiting for you in its own window (permission prompt)");
+    adapter.emit({ type: "started", externalId: "w" });
+    expect(status("opencode:w")).toBe("working");
+    expect(manager.get("opencode:w")?.waitingFor).toBeUndefined();
+  });
+});
+
 describe("SessionManager search", () => {
   test("finds sessions outside the recent list and can act on them", async () => {
     const { adapter, manager } = setup();

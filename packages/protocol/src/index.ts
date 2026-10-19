@@ -74,6 +74,13 @@ export interface AgentSession {
   /** Last thing the agent said, trimmed for display. */
   lastText?: string;
   error?: string;
+  /**
+   * Open in one of the user's windows right now (Claude Code in a terminal, an IDE or
+   * the desktop app). Mimir's messages to it show up there.
+   */
+  open?: boolean;
+  /** What that window is waiting for, e.g. "permission prompt". */
+  waitingFor?: string;
   createdAt: number;
   updatedAt: number;
 }

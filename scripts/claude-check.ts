@@ -21,7 +21,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeCodeAdapter } from "../packages/adapters/src/claude.ts";
+import { ClaudeCodeAdapter, findClaude } from "../packages/adapters/src/claude.ts";
+import { endStdin, spawnCommand, writeLine } from "../packages/adapters/src/process.ts";
 import type { AdapterEvent } from "../packages/adapters/src/types.ts";
 import { classifyApproval, GUARDED_SHELL_COMMANDS } from "../packages/core/src/policy.ts";
 
@@ -366,6 +367,68 @@ for (const shell of shells) {
   }
 }
 userSettings({});
+
+// A session open somewhere else, as in a terminal or an IDE: a separate Claude Code process
+// with its own permissions (it accepts edits). Mimir's message must arrive in that session.
+await scenario("a message to a session open elsewhere goes into it", async () => {
+  const name = "a message to a session open elsewhere goes into it";
+  const claude = findClaude();
+  if (!claude) throw new Error("no claude");
+  const window = spawnCommand(
+    claude,
+    [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--input-format",
+      "stream-json",
+      "--permission-mode",
+      "acceptEdits",
+    ],
+    { cwd: project, stdin: "pipe", stdout: "pipe", stderr: "ignore", env: { ...process.env, ...env } },
+  );
+  void new Response(window.stdout as ReadableStream).text();
+  writeLine(window, JSON.stringify({ type: "user", message: { role: "user", content: "Window ready." } }));
+  try {
+    // Wait for it to register as open, with a transcript Mimir can list.
+    let open: string | undefined;
+    for (let i = 0; i < 60 && !open; i++) {
+      await Bun.sleep(500);
+      open = (await adapter.listRecent(50)).find((s) => s.open && s.directory === project)?.externalId;
+    }
+    if (!open) throw new Error("the session never showed as open");
+    let asked = false;
+    const stop = adapter.onEvent((event) => {
+      if (event.type === "permission.asked") asked = true;
+    });
+    const done = next("succeeded", "failed", "interrupted");
+    await adapter.prompt(
+      { externalId: open, directory: project },
+      `Write it. ${call("Write", { file_path: file("from-window.txt"), content: "written in the window" })}`,
+      GUARDED_SHELL_COMMANDS,
+    );
+    const end = await done;
+    stop();
+    // Claude Code records who a message came from in the session's own transcript.
+    const transcript = new Bun.Glob(`*/${open}.jsonl`).scanSync({
+      cwd: join(config, "projects"),
+      absolute: true,
+    });
+    const lines = [...transcript].flatMap((path) => readFileSync(path, "utf8").split("\n"));
+    const fromMimir = lines.some(
+      (line) => line.includes('"kind":"peer"') && line.includes('"name":"OpenMimir"'),
+    );
+    check(
+      name,
+      end.type === "succeeded" && !asked && existsSync(file("from-window.txt")) && fromMimir,
+      `${end.type}; written there: ${existsSync(file("from-window.txt"))}; shown as from OpenMimir: ${fromMimir}`,
+    );
+  } finally {
+    endStdin(window);
+    window.kill();
+  }
+});
 
 await scenario("a request whose run was stopped expires", async () => {
   const asked = next("permission.asked");

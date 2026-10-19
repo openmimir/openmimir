@@ -120,6 +120,8 @@ export const pages: Page[] = [
             <li><b>Talk instead of type.</b> Full-duplex voice with live captions. Useful when your hands or eyes are busy:
             on a trainer, a treadmill, cooking, walking the dog.</li>
             <li><b>Summaries instead of transcripts.</b> Ask "is the migration done?" and get one sentence back.</li>
+            <li><b>Writes into the window you're in.</b> If a session is open in your terminal, an IDE or the
+            desktop app, OpenMimir's message shows up right there and you watch it work.</li>
             <li><b>Permission prompts come along.</b> Whatever Claude Code would ask at your desk, it asks you here:
             tap Approve, or say "confirm". Pushes, deploys and deletes wait for a screen.</li>
             <li><b>Not only Claude.</b> The same conversation covers Codex and OpenCode sessions.</li>

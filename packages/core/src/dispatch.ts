@@ -16,8 +16,9 @@ export interface DispatchInput {
  */
 export function formatDispatch({ said, source, task, at = new Date() }: DispatchInput): string {
   const time = at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  const lines = [`[Mimir · ${source === "voice" ? "voice" : "typed"} · ${time}]`];
-  if (said?.trim()) lines.push(`The user said: "${said.trim()}"`);
+  const header = `[Mimir · ${source === "voice" ? "voice" : "typed"} · ${time}]`;
+  // One line, because Claude Code windows preview only the first line of a message.
+  const lines = [said?.trim() ? `${header} The user said: "${said.trim()}"` : header];
   lines.push("", `Task: ${task.trim()}`, "");
   lines.push(
     "Reply: Mimir relays your reply to the user, who may be away from the screen. Lead with the answer or outcome, then anything the user must decide or do. Keep it short.",

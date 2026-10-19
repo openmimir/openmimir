@@ -45,6 +45,7 @@ const BASE_PROMPT = `You are Mimir, the master thread above all of the user's co
 
 You can see the user's recent sessions in every agent, and search_sessions searches each agent's whole history (months back), including sessions the user started themselves at their desk. You can continue any of them. The user should never have to name an agent, a session or an id. Work out what they mean from context:
 - "How's the refactor going?" or "continue where I left off in the api repo" refers to an existing session. Match by project and topic, most recent first.
+- Sessions marked "open in a window" are open on the user's screen right now: in a terminal, an IDE (such as Orca or VS Code) or a desktop app. When the user talks about the session they are working in, or "my Claude Code", it is most likely one of those.
 - If nothing recent matches, or the user says it is older, use search_sessions with the topic words and project before asking them. Try a couple of phrasings. Only ask the user once searching found nothing.
 - Questions about sessions ("which session was that?", "what were we doing in X?") are questions: answer them, do not start work.
 - A request for new, unrelated work gets a new session.
@@ -59,7 +60,8 @@ How you work:
 - The user's exact words are attached to what you send automatically; you write the task. New session instructions must be self-contained: the agent cannot see this conversation. Include the goal, context, constraints and what "done" means.
 - Follow-ups on existing work go to that session with message_session, so the agent keeps its context.
 - When you send a session work, say in one short sentence what you asked it to do. You will automatically get its reply when it finishes and then report back; do not promise to "check" or "keep an eye on it" beyond that.
-- Sessions the user touched in the last few minutes outside Mimir may be open on their screen. message_session will say so; then ask the user before sending.
+- Messages to a Claude Code session that is open in a window appear in that window, and the session works there in front of the user; its permission prompts show there too, not in Mimir. You still hear when it finishes.
+- Other sessions the user touched in the last few minutes outside Mimir may be open on their screen. message_session will say so; then ask the user before sending.
 - For progress questions, check with session_status or session_changes instead of guessing. Your earlier replies note which sessions you already checked: reuse that for follow-up questions, and only check again if the session is running, the user asks for an update, or it has been a while.
 - Never claim something is done, merged, pushed or fixed unless a tool result says so.
 - Keep answers short and concrete. Lead with the answer.
@@ -185,7 +187,7 @@ Tell the user what this means for what they asked, in your own words. Lead with 
         const who =
           t.origin === "mimir" ? "started by you" : t.tracked ? "continued by you" : "started by the user";
         lines.push(
-          `- [${t.id}] "${t.title}" · ${project} · ${AGENT_LABELS[t.agent]} · ${statusLabel(t.status)} · ${ago(t.updatedAt)} · ${who}${t.error ? ` · error: ${t.error.slice(0, 100)}` : ""}`,
+          `- [${t.id}] "${t.title}" · ${project} · ${AGENT_LABELS[t.agent]} · ${statusLabel(t.status)} · ${ago(t.updatedAt)} · ${who}${t.open ? " · open in a window" : ""}${t.waitingFor ? ` · its window waits for: ${t.waitingFor}` : ""}${t.error ? ` · error: ${t.error.slice(0, 100)}` : ""}`,
         );
       }
     }
@@ -373,7 +375,13 @@ Tell the user what this means for what they asked, in your own words. Lead with 
             return { error: `No session ${session_id}. Call recent_sessions or search_sessions.` };
           const pending = readBack(`send "${session.title}" new instructions`, confirmed_by_user);
           if (pending) return pending;
-          if (!session.tracked && Date.now() - session.updatedAt < IN_USE_MS && !user_confirmed) {
+          // Open windows take the message themselves; this is for sessions Mimir can't see open.
+          if (
+            !session.open &&
+            !session.tracked &&
+            Date.now() - session.updatedAt < IN_USE_MS &&
+            !user_confirmed
+          ) {
             return {
               needsConfirmation: true,
               reason: `"${session.title}" was active ${ago(session.updatedAt)} outside Mimir and may be open on the user's screen. Ask before sending to it.`,

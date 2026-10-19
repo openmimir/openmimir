@@ -83,14 +83,15 @@ export class SessionManager {
     // Freshly listed sessions already carry Mimir's stored state (see fromSummary), so they
     // win; stored sessions only fill in ones that dropped off the agents' recent lists.
     const merged = new Map<string, AgentSession>();
-    for (const session of this.store.sessions(40)) merged.set(session.id, session);
+    for (const session of this.store.sessions(40)) merged.set(session.id, stored(session));
     for (const session of this.recentCache?.sessions ?? []) merged.set(session.id, session);
     return [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   get(id: string): AgentSession | undefined {
+    const saved = this.store.session(id);
     return (
-      this.recentCache?.sessions.find((t) => t.id === id) ?? this.store.session(id) ?? this.found.get(id)
+      this.recentCache?.sessions.find((t) => t.id === id) ?? (saved && stored(saved)) ?? this.found.get(id)
     );
   }
 
@@ -170,8 +171,8 @@ export class SessionManager {
       if (s.waitingFor) status = "needs_you";
       else if (s.running && tracked.status !== "needs_you") status = "working";
       else if (!s.running && tracked.status === "working" && quietFor > 30_000) status = "idle";
-      else if (s.open && tracked.status === "needs_you" && !this.hasPending(id)) {
-        // Its window stopped waiting, and nothing waits in Mimir either.
+      else if (tracked.status === "needs_you" && !this.hasPending(id)) {
+        // Its window stopped waiting (or closed), and nothing waits in Mimir either.
         status = s.running ? "working" : "idle";
       }
       return {
@@ -450,6 +451,11 @@ export class SessionManager {
       }
     }
   }
+}
+
+/** A saved copy only knows what was open back then; the agents' live lists say what is open now. */
+function stored(session: AgentSession): AgentSession {
+  return { ...session, open: undefined, waitingFor: undefined };
 }
 
 function summarize(text: string | undefined): string {

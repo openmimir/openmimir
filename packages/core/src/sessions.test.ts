@@ -219,6 +219,55 @@ describe("SessionManager approvals", () => {
   });
 });
 
+describe("SessionManager windows", () => {
+  test("a session waiting for its user in its own window needs them", async () => {
+    const { adapter, manager, status } = setup();
+    adapter.recent = [summary("w", { open: true, waitingFor: "permission prompt" })];
+    await manager.refresh(true);
+    expect(status("opencode:w")).toBe("needs_you");
+    expect(manager.get("opencode:w")).toMatchObject({ open: true, waitingFor: "permission prompt" });
+  });
+
+  test("a window Mimir messaged is announced when it waits, and clears when it goes on", async () => {
+    const { adapter, manager, spoken, status } = setup();
+    adapter.recent = [summary("w", { open: true })];
+    await manager.refresh(true);
+    await manager.message("opencode:w", "go");
+    adapter.emit({ type: "waiting", externalId: "w", reason: "permission prompt" });
+    expect(status("opencode:w")).toBe("needs_you");
+    expect(spoken.at(-1)?.text).toContain("waiting for you in its own window (permission prompt)");
+    adapter.emit({ type: "started", externalId: "w" });
+    expect(status("opencode:w")).toBe("working");
+    expect(manager.get("opencode:w")?.waitingFor).toBeUndefined();
+  });
+});
+
+describe("SessionManager window state after the fact", () => {
+  test("a window that waited, then closed while nobody looked, does not need the user forever", async () => {
+    const { adapter, manager, status } = setup();
+    adapter.recent = [summary("w", { open: true })];
+    await manager.refresh(true);
+    await manager.message("opencode:w", "go");
+    adapter.emit({ type: "waiting", externalId: "w", reason: "permission prompt" });
+    expect(status("opencode:w")).toBe("needs_you");
+    // Closed: no longer open, not waiting, nothing pending in Mimir.
+    adapter.recent = [summary("w")];
+    await manager.refresh(true);
+    expect(status("opencode:w")).toBe("idle");
+  });
+
+  test("a saved session is not shown as open once it dropped off the live list", async () => {
+    const { adapter, manager } = setup();
+    adapter.recent = [summary("w", { open: true })];
+    await manager.refresh(true);
+    manager.focus("opencode:w");
+    adapter.recent = [];
+    await manager.refresh(true);
+    expect(manager.get("opencode:w")?.open).toBeUndefined();
+    expect(manager.list().find((s) => s.id === "opencode:w")?.open).toBeUndefined();
+  });
+});
+
 describe("SessionManager search", () => {
   test("finds sessions outside the recent list and can act on them", async () => {
     const { adapter, manager } = setup();

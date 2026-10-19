@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { formatDispatch } from "./dispatch.ts";
 
 describe("formatDispatch", () => {
-  test("keeps the user's words next to the task", () => {
+  test("keeps the user's words next to the task, on the first line a window previews", () => {
     const text = formatDispatch({
       said: "  are the migrations done? ",
       source: "voice",
@@ -11,8 +11,7 @@ describe("formatDispatch", () => {
     });
     expect(text).toBe(
       [
-        "[Mimir · voice · 16:12]",
-        'The user said: "are the migrations done?"',
+        '[Mimir · voice · 16:12] The user said: "are the migrations done?"',
         "",
         "Task: Check whether the migrations finished. Read-only.",
         "",

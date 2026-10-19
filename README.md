@@ -29,8 +29,11 @@ listens while it talks, you can interrupt it, and it tells you when a session fi
 - **Voice** uses OpenAI's `gpt-live-1`. Your browser streams audio straight to OpenAI; the Mimir
   server brokers the session, listens in, and handles everything the voice model delegates.
 - **Sessions** are the agents' own sessions. OpenCode runs through your OpenCode background service
-  (the one your OpenCode app uses), so Mimir's messages show up live in your OpenCode windows; Claude Code and Codex run headless (`claude -p`, `codex exec`) and are picked up
-  automatically when installed.
+  (the one your OpenCode app uses), so Mimir's messages show up live in your OpenCode windows.
+  Claude Code sessions that are open somewhere (a terminal, an IDE such as Orca or VS Code, the
+  Claude desktop app) get Mimir's messages right in that window, through Claude Code's own
+  cross-session messaging; the rest run headless (`claude -p`), as do Codex sessions
+  (`codex exec`). Claude Code and Codex are picked up automatically when installed.
 
 ## Install
 

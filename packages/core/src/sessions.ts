@@ -83,14 +83,15 @@ export class SessionManager {
     // Freshly listed sessions already carry Mimir's stored state (see fromSummary), so they
     // win; stored sessions only fill in ones that dropped off the agents' recent lists.
     const merged = new Map<string, AgentSession>();
-    for (const session of this.store.sessions(40)) merged.set(session.id, session);
+    for (const session of this.store.sessions(40)) merged.set(session.id, stored(session));
     for (const session of this.recentCache?.sessions ?? []) merged.set(session.id, session);
     return [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   get(id: string): AgentSession | undefined {
+    const saved = this.store.session(id);
     return (
-      this.recentCache?.sessions.find((t) => t.id === id) ?? this.store.session(id) ?? this.found.get(id)
+      this.recentCache?.sessions.find((t) => t.id === id) ?? (saved && stored(saved)) ?? this.found.get(id)
     );
   }
 
@@ -163,20 +164,25 @@ export class SessionManager {
     }
     if (tracked) {
       // Keep Mimir's own state, but take fresher details from the agent. The user may
-      // also be running it from their own window, which Mimir only sees by inference.
+      // also be running it from their own window, which Mimir sees from the agent's
+      // own records of open windows or, failing that, by inference.
       const quietFor = Date.now() - Math.max(tracked.updatedAt, s.updatedAt);
-      const status =
-        s.running && tracked.status !== "needs_you"
-          ? "working"
-          : !s.running && tracked.status === "working" && quietFor > 30_000
-            ? "idle"
-            : tracked.status;
+      let status = tracked.status;
+      if (s.waitingFor) status = "needs_you";
+      else if (s.running && tracked.status !== "needs_you") status = "working";
+      else if (!s.running && tracked.status === "working" && quietFor > 30_000) status = "idle";
+      else if (tracked.status === "needs_you" && !this.hasPending(id)) {
+        // Its window stopped waiting (or closed), and nothing waits in Mimir either.
+        status = s.running ? "working" : "idle";
+      }
       return {
         ...tracked,
         status,
         title: tracked.origin === "mimir" ? tracked.title : s.title,
         updatedAt: Math.max(tracked.updatedAt, s.updatedAt),
         lastText: s.lastText?.slice(-TEXT_PREVIEW) ?? tracked.lastText,
+        open: s.open,
+        waitingFor: s.waitingFor,
       };
     }
     return this.external(id, agent, s);
@@ -188,11 +194,13 @@ export class SessionManager {
       agent,
       title: s.title,
       directory: s.directory,
-      status: s.running ? "working" : "idle",
+      status: s.waitingFor ? "needs_you" : s.running ? "working" : "idle",
       externalId: s.externalId,
       origin: "external",
       tracked: false,
       lastText: s.lastText?.slice(-TEXT_PREVIEW),
+      open: s.open,
+      waitingFor: s.waitingFor,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
     };
@@ -331,13 +339,24 @@ export class SessionManager {
     if (!session?.tracked) return;
     switch (event.type) {
       case "started":
-        this.save(session, { status: "working", error: undefined });
+        this.save(session, { status: "working", error: undefined, waitingFor: undefined });
+        break;
+      case "waiting":
+        this.save(session, { status: "needs_you", waitingFor: event.reason });
+        this.announce({
+          kind: "approval",
+          sessionId: session.id,
+          text: `"${session.title}" is waiting for you in its own window (${event.reason}). Answer it there.`,
+        });
         break;
       case "text":
         this.save(session, { lastText: event.text.slice(-TEXT_PREVIEW) });
         break;
       case "succeeded": {
-        const next = this.save(session, { status: this.hasPending(session.id) ? "needs_you" : "idle" });
+        const next = this.save(session, {
+          status: this.hasPending(session.id) ? "needs_you" : "idle",
+          waitingFor: undefined,
+        });
         // lastText is only a preview; fetch the whole reply so the foreman can report on it.
         void this.adapter(session.agent)
           .lastAssistantText(session)
@@ -353,7 +372,7 @@ export class SessionManager {
         break;
       }
       case "failed":
-        this.save(session, { status: "failed", error: event.error });
+        this.save(session, { status: "failed", error: event.error, waitingFor: undefined });
         this.announce({
           kind: "failed",
           sessionId: session.id,
@@ -361,7 +380,7 @@ export class SessionManager {
         });
         break;
       case "interrupted": {
-        this.save(session, { status: "idle" });
+        this.save(session, { status: "idle", waitingFor: undefined });
         const rejectedAt = this.lastRejection.get(session.id) ?? 0;
         if (Date.now() - rejectedAt < 60_000) {
           this.announce({
@@ -432,6 +451,11 @@ export class SessionManager {
       }
     }
   }
+}
+
+/** A saved copy only knows what was open back then; the agents' live lists say what is open now. */
+function stored(session: AgentSession): AgentSession {
+  return { ...session, open: undefined, waitingFor: undefined };
 }
 
 function summarize(text: string | undefined): string {

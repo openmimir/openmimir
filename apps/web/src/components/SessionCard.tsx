@@ -16,7 +16,11 @@ export function SessionCard({
 }) {
   const status = STATUS[session.status];
   const Icon = status.icon;
-  const detail = plain(session.error ?? session.lastText);
+  const detail = plain(
+    session.waitingFor
+      ? `Waiting in its window for: ${session.waitingFor}`
+      : (session.error ?? session.lastText),
+  );
   return (
     // biome-ignore lint/a11y/useSemanticElements: the card contains its own stop button, so it cannot be a <button>
     <div
@@ -40,6 +44,7 @@ export function SessionCard({
           <div className="truncate text-sm font-semibold text-well-50">{session.title}</div>
           <div className="truncate text-xs text-well-400">
             {projectName(session.directory)} · {AGENT_LABELS[session.agent]} · {timeAgo(session.updatedAt)}
+            {session.open && <OpenMark />}
           </div>
         </div>
         {session.status === "working" && onStop && (
@@ -88,6 +93,7 @@ export function GlanceRow({ session }: { session: AgentSession }) {
         <div className="truncate text-base text-well-400">
           <span className={`font-semibold ${status.color}`}>{status.label}</span> ·{" "}
           {AGENT_LABELS[session.agent]} · {projectName(session.directory)}
+          {session.open && <OpenMark />}
         </div>
       </div>
     </div>
@@ -138,6 +144,19 @@ export function SessionLine({
         )}
       </div>
     </button>
+  );
+}
+
+/** The session is open in one of the user's windows, where Mimir's messages show up. */
+function OpenMark() {
+  return (
+    <span
+      title="Open in one of your windows right now. Mimir's messages show up there."
+      className="text-well-200"
+    >
+      {" "}
+      · open
+    </span>
   );
 }
 

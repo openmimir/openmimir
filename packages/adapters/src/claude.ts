@@ -9,8 +9,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import type { Subprocess } from "bun";
+import { type LiveSession, openWindows, postToInbox, readLiveSessions } from "./claude-live.ts";
 import { gitChanges } from "./git.ts";
 import {
   type Command,
@@ -50,6 +51,10 @@ type Json = Record<string, unknown>;
 const STALE_MS = 10 * 60_000;
 /** Search reads at most this many transcripts (newest first). */
 const SEARCH_FILES = 400;
+/** How often Mimir checks on a session it messaged in the user's window. */
+const FOLLOW_EVERY_MS = 1_000;
+/** A window that shows no sign of the message after this long did not take it. */
+const FOLLOW_GIVE_UP_MS = 60_000;
 /**
  * Tools that only work with someone at Claude Code's own screen. Without them Claude
  * asks its questions in its reply, which Mimir passes on.
@@ -107,6 +112,8 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   /** Permission requests waiting for the user, by Claude's request id. */
   private readonly pending = new Map<string, { run: Run; input: unknown; suggestions: Json[] }>();
   private readonly grants = new Map<string, Grants>();
+  /** Sessions Mimir messaged in the user's windows, watched until their turn is over. */
+  private readonly following = new Map<string, ReturnType<typeof setInterval>>();
 
   constructor(options: ClaudeCodeAdapterOptions = {}) {
     super();
@@ -120,11 +127,17 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   async start() {}
 
   async stop() {
+    for (const id of [...this.following.keys()]) this.unfollow(id);
     for (const [id, run] of this.running) {
       this.interrupting.add(id);
       killTree(run.proc);
     }
     this.running.clear();
+  }
+
+  /** Sessions open in the user's windows right now (a terminal, an IDE, the desktop app). */
+  private windows(): Map<string, LiveSession> {
+    return openWindows(readLiveSessions(dirname(this.projectsDir)), new Set(this.running.keys()));
   }
 
   private command(): Command {
@@ -183,28 +196,37 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   private async toSummaries(
     files: Array<{ path: string; id: string; mtime: number; ctime: number }>,
     bytes = 256 * 1024,
+    windows = this.windows(),
   ): Promise<SessionSummary[]> {
     const summaries: SessionSummary[] = [];
     for (const file of files) {
       const summary = await this.summarize(file.path, file.id, bytes).catch(() => undefined);
       if (!summary) continue;
       const { midTurn, ...rest } = summary;
+      // Open windows report their own state; Mimir knows its headless runs; for anything
+      // else (older Claude Code), infer it from the transcript.
+      const window = windows.get(file.id);
       summaries.push({
         ...rest,
         externalId: file.id,
         updatedAt: file.mtime,
         createdAt: file.ctime,
-        // Headless runs Mimir started are known; for the user's own terminals, infer from the transcript.
-        running:
-          this.running.get(file.id)?.finished === false ||
-          (midTurn && Date.now() - file.mtime < STALE_MS && !this.endedAfter(file)),
+        running: window
+          ? window.status === "busy"
+          : this.running.get(file.id)?.finished === false ||
+            (midTurn && Date.now() - file.mtime < STALE_MS && !this.endedAfter(file)),
+        ...(window ? { open: true } : {}),
+        ...(window?.status === "waiting" ? { waitingFor: window.waitingFor ?? "input" } : {}),
       });
     }
     return summaries;
   }
 
   async listRecent(limit: number): Promise<SessionSummary[]> {
-    return this.toSummaries(this.files().slice(0, limit));
+    const windows = this.windows();
+    // Sessions open in a window are listed however long ago they last changed.
+    const files = this.files().filter((file, index) => index < limit || windows.has(file.id));
+    return this.toSummaries(files, undefined, windows);
   }
 
   async search(query: SessionQuery): Promise<SessionSummary[]> {
@@ -274,6 +296,20 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
   }
 
   async prompt(session: { externalId: string; directory: string }, text: string, guardedCommands: string[]) {
+    // Open in one of the user's windows: deliver it there, where they see it arrive. A
+    // headless run next to an open window would be invisible in it.
+    const window = this.windows().get(session.externalId);
+    if (window) {
+      if (!window.inbox) {
+        throw new Error(
+          "That session is open in a Claude Code window that can't take messages. Update Claude Code (2.1.234 or later), or close that window and try again.",
+        );
+      }
+      const sent = Date.now();
+      await postToInbox(window, text);
+      this.follow(session.externalId, sent);
+      return;
+    }
     const current = this.running.get(session.externalId);
     if (current && !current.finished) {
       throw new Error(
@@ -499,9 +535,65 @@ export class ClaudeCodeAdapter extends Emitter implements AgentAdapter {
     return file;
   }
 
+  /**
+   * Watch a session Mimir messaged in the user's window until its turn is over: its state
+   * comes from Claude Code's registry, its reply from the transcript.
+   */
+  private follow(externalId: string, sent: number) {
+    this.unfollow(externalId);
+    const transcript = this.files().find((file) => file.id === externalId)?.path;
+    const replied = () => {
+      try {
+        return transcript !== undefined && statSync(transcript).mtimeMs > sent;
+      } catch {
+        return false;
+      }
+    };
+    this.emit({ type: "started", externalId });
+    let worked = false;
+    let waiting: string | undefined;
+    const timer = setInterval(() => {
+      const window = this.windows().get(externalId);
+      if (!window) {
+        this.unfollow(externalId);
+        this.emit(
+          replied()
+            ? { type: "succeeded", externalId }
+            : { type: "interrupted", externalId, reason: "its window was closed" },
+        );
+      } else if (window.status === "waiting") {
+        worked = true;
+        const reason = window.waitingFor ?? "input";
+        if (waiting !== reason) this.emit({ type: "waiting", externalId, reason });
+        waiting = reason;
+      } else if (window.status === "busy") {
+        worked = true;
+        if (waiting !== undefined) this.emit({ type: "started", externalId });
+        waiting = undefined;
+      } else if (worked || replied()) {
+        this.unfollow(externalId);
+        this.emit({ type: "succeeded", externalId });
+      } else if (Date.now() - sent > FOLLOW_GIVE_UP_MS) {
+        this.unfollow(externalId);
+        this.emit({ type: "failed", externalId, error: "Its window did not pick up the message." });
+      }
+    }, FOLLOW_EVERY_MS);
+    this.following.set(externalId, timer);
+  }
+
+  private unfollow(externalId: string) {
+    clearInterval(this.following.get(externalId));
+    this.following.delete(externalId);
+  }
+
   async interrupt(externalId: string) {
     const run = this.running.get(externalId);
-    if (!run) return;
+    if (!run) {
+      if (this.windows().has(externalId)) {
+        throw new Error("That session runs in one of your Claude Code windows. Press Esc there to stop it.");
+      }
+      return;
+    }
     this.interrupting.add(externalId);
     killTree(run.proc);
   }

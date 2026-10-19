@@ -8,9 +8,11 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClaudeCodeAdapter } from "./claude.ts";
+import { envelope } from "./claude-live.ts";
 import type { AdapterEvent } from "./types.ts";
 
 // A fake `claude` installed the way npm installs CLIs (a .cmd shim on Windows), so this
@@ -267,4 +269,67 @@ describe("Claude Code headless runs", () => {
     );
     expect(existsSync(join(work, "never.txt"))).toBe(false);
   });
+
+  test("a message to a session open in a window goes into that window, and Mimir follows it there", async () => {
+    const { adapter, next } = setup();
+    const id = "open-window";
+    mkdirSync(join(projects, "repo"), { recursive: true });
+    const entry = { type: "user", cwd: work, message: { role: "user", content: "earlier work" } };
+    writeFileSync(join(projects, "repo", `${id}.jsonl`), `${JSON.stringify(entry)}\n`);
+
+    // The window's inbox, and Claude Code's registry entry for it.
+    const inbox =
+      process.platform === "win32" ? `\\\\.\\pipe\\mimir-window-${process.pid}` : join(root, "window.sock");
+    const received: string[] = [];
+    const server = createServer((socket) => {
+      let data = "";
+      socket.on("data", (chunk) => {
+        data += chunk;
+      });
+      socket.on("end", () => received.push(data));
+    });
+    await new Promise<void>((resolve) => server.listen(inbox, resolve));
+    const registry = join(root, "sessions", `${process.pid}.json`);
+    mkdirSync(join(root, "sessions"), { recursive: true });
+    const window = {
+      pid: process.pid,
+      sessionId: id,
+      cwd: work,
+      entrypoint: "cli",
+      peerProtocol: 1,
+      messagingSocketPath: inbox,
+      status: "idle",
+      updatedAt: Date.now(),
+    };
+    const show = (patch: Record<string, unknown>) =>
+      writeFileSync(registry, JSON.stringify({ ...window, ...patch }));
+    show({});
+    try {
+      const listed = (await adapter.listRecent(10)).find((s) => s.externalId === id);
+      expect(listed?.open).toBe(true);
+
+      const started = next("started");
+      await adapter.prompt({ externalId: id, directory: work }, "Please add a volume slider", []);
+      await started;
+      await Bun.sleep(200);
+      expect(received.join("")).toContain(JSON.stringify(envelope("Please add a volume slider")));
+      // No second Claude process on a conversation that is open in a window.
+      expect(existsSync(join(projects, `args-${id}.json`))).toBe(false);
+
+      const waiting = next("waiting");
+      show({ status: "waiting", waitingFor: "permission prompt" });
+      expect((await waiting).reason).toBe("permission prompt");
+      const resumed = next("started");
+      show({ status: "busy" });
+      await resumed;
+      const done = next("succeeded");
+      show({ status: "idle" });
+      await done;
+      await expect(adapter.interrupt(id)).rejects.toThrow(/Press Esc there/);
+    } finally {
+      rmSync(registry, { force: true });
+      server.close();
+      await adapter.stop();
+    }
+  }, 20_000);
 });
